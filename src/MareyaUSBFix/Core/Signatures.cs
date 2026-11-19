@@ -63,6 +63,20 @@ namespace MareyaUSBFix.Core
         private static readonly Regex ChkdskFolderRegex =
             new Regex(@"^found\.\d{3}( \(\d+\))?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        /// <summary>Noms des dossiers « emballage » où des variantes du virus enferment les fichiers.</summary>
+        public static readonly HashSet<string> WrapperFolderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Files are hidden by Trojan"
+        };
+
+        /// <summary>Dossier-emballage du virus : nom invisible (espaces) ou nom connu.</summary>
+        public static bool IsWrapperFolder(string name) => IsBlankName(name) || WrapperFolderNames.Contains(name.Trim());
+
+        /// <summary>Déchets laissés dans les dossiers-emballages : icône et autorun neutralisé.</summary>
+        public static bool IsWrapperJunk(string name) =>
+            name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)
+            || Regex.IsMatch(name, @"^autorun.*\.inf$", RegexOptions.IgnoreCase);
+
         /// <summary>Dossiers « found.000 » créés par la réparation de disque de Windows (chkdsk).</summary>
         public static bool IsChkdskFolder(string name) => ChkdskFolderRegex.IsMatch(name);
 

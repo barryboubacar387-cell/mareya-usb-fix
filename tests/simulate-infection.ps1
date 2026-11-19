@@ -79,6 +79,16 @@ Set-Content -LiteralPath "$root$blank\notes.txt" "autre version des notes"   # m
 New-Item -ItemType Directory -Path "$root$blank\Vacances" | Out-Null
 Set-Content -LiteralPath "$root$blank\Vacances\plage.jpg" "image"
 attrib +h +s "$root$blank\Vacances"
+# variante réelle : le virus a infecté plusieurs fois et emboîté « Files are hidden by Trojan »
+$wrap1 = "$root$blank\Files are hidden by Trojan"
+$wrap2 = "$wrap1\Files are hidden by Trojan"
+New-Item -ItemType Directory -Path "$wrap2\Profond" | Out-Null
+Set-Content -LiteralPath "$wrap2\Profond\doc.txt" "fichier très profond"
+Set-Content -LiteralPath "$wrap1\Pilotes.zip" "zip"
+foreach ($w in $wrap1, $wrap2) {
+    Set-Content -LiteralPath "$w\AUTORUN_.INF" "[autorun]"
+    Set-Content -LiteralPath "$w\desktop.ini" "[.ShellClassInfo]"
+}
 attrib +h +s "$root$blank"
 # variante : nom fait d'espaces ordinaires (Windows les supprime des chemins normaux)
 # (PowerShell supprime lui aussi les espaces finaux : on passe directement par .NET avec \\?\)
@@ -144,6 +154,10 @@ Check ((Test-Path "$root\Vacances\plage.jpg") -and -not (IsHidden "$root\Vacance
 Check ((Get-Content "$root\notes.txt") -eq "mes notes") "fichier existant non écrasé"
 Check ((Get-Content "$root\notes (2).txt") -eq "autre version des notes") "doublon remis sous le nom « notes (2).txt »"
 Check (-not (Test-Path -LiteralPath "$root$blank")) "dossier sans nom du virus supprimé"
+Check (Test-Path "$root\Profond\doc.txt") "emballages « Files are hidden by Trojan » imbriqués : fichiers profonds remis à la racine"
+Check (Test-Path "$root\Pilotes.zip") "fichiers du premier emballage remis à la racine"
+Check (-not (Test-Path "$root\Files are hidden by Trojan")) "aucun emballage « Files are hidden by Trojan » laissé"
+Check (-not (Test-Path "$root\AUTORUN_.INF")) "déchets du virus (AUTORUN_.INF) non remis à la racine"
 Check (Test-Path "$root\rapport-espaces.txt") "dossier aux espaces ordinaires : fichiers remis à la racine"
 Check (-not [IO.Directory]::Exists($spacesDir)) "dossier aux espaces ordinaires supprimé"
 Check (-not (Get-ChildItem -LiteralPath $root -Force | Where-Object { $_.Name -like '* (2)*' -and $_.Name -ne 'notes (2).txt' })) "aucun élément de la racine renommé « (2) » par erreur"

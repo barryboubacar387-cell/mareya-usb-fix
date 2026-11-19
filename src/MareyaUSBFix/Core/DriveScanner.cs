@@ -148,9 +148,12 @@ namespace MareyaUSBFix.Core
 
             //    Même chose pour un dossier « Fichiers récupérés » laissé par une version précédente du logiciel.
             foreach (var dir in all.OfType<DirectoryInfo>().Where(d => atRoot(d)
+                         && !Signatures.IsBlankName(d.Name)
                          && (d.Name.Equals(RecoveredFolderName, StringComparison.OrdinalIgnoreCase)
-                             || d.Name.StartsWith(RecoveredFolderName + " (", StringComparison.OrdinalIgnoreCase))))
+                             || d.Name.StartsWith(RecoveredFolderName + " (", StringComparison.OrdinalIgnoreCase)
+                             || Signatures.IsWrapperFolder(d.Name))))
             {
+                if (flagged.Contains(dir.FullName)) continue;
                 string path = dir.FullName;
                 Add(findings, flagged, Severity.Malicious, "Fichiers cachés",
                     $"Vos fichiers du dossier « {dir.Name} » seront remis à leur place et le dossier supprimé", path,
@@ -226,15 +229,53 @@ namespace MareyaUSBFix.Core
             if (string.Equals(folder.TrimEnd('\\'), rootLong.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
                 || Path.GetFileName(folder.TrimEnd('\\')).Length == 0)
                 throw new InvalidOperationException("Chemin du dossier caché invalide : opération annulée par sécurité.");
+
             int moved = 0;
             var failures = new List<string>();
+            EmptyInto(folder, rootLong, log, ref moved, failures, depth: 0);
+            log($"{moved} élément(s) remis à leur place.");
+            RestoreWindowsFolders();
 
-            foreach (string entry in Directory.GetFileSystemEntries(folder))
+            if (failures.Count > 0)
+                throw new IOException($"{failures.Count} élément(s) bloqué(s) ({string.Join(", ", failures.Take(3))}). " +
+                                      "Fermez les fichiers et fenêtres ouverts sur ce lecteur, puis relancez.");
+        }
+
+        /// <summary>
+        /// Vide un dossier-emballage du virus dans la racine. Les emballages imbriqués (le virus a pu
+        /// infecter le disque plusieurs fois : « Files are hidden by Trojan » dans « Files are hidden
+        /// by Trojan »…) sont ouverts à leur tour ; leurs déchets (desktop.ini, autorun_.inf) supprimés.
+        /// Le dossier n'est supprimé qu'une fois vide.
+        /// </summary>
+        private void EmptyInto(string folder, string rootLong, Action<string> log, ref int moved, List<string> failures, int depth)
+        {
+            const string longPrefix = @"\\?\";
+            string[] entries;
+            try { entries = Directory.GetFileSystemEntries(folder); }
+            catch (Exception ex)
+            {
+                failures.Add(Path.GetFileName(folder));
+                log($"Contenu illisible : « {Path.GetFileName(folder)} » ({ex.Message})");
+                return;
+            }
+
+            foreach (string entry in entries)
             {
                 string name = Path.GetFileName(entry);
                 try
                 {
                     bool isDir = Directory.Exists(entry);
+                    if (isDir && Signatures.IsWrapperFolder(name) && depth < 50)
+                    {
+                        EmptyInto(entry, rootLong, log, ref moved, failures, depth + 1);
+                        continue;
+                    }
+                    if (!isDir && Signatures.IsWrapperJunk(name))
+                    {
+                        FileOps.DeleteFile(entry);
+                        continue;
+                    }
+
                     string target = FileOps.FreeName(rootLong, name, isDir);
                     Retry(() =>
                     {
@@ -267,25 +308,24 @@ namespace MareyaUSBFix.Core
                     log($"Impossible de remettre « {name} » à sa place : {ex.Message}");
                 }
             }
-            log($"{moved} élément(s) remis à leur place.");
-            RestoreWindowsFolders();
 
-            if (failures.Count > 0)
-                throw new IOException($"{failures.Count} élément(s) bloqué(s) ({string.Join(", ", failures.Take(3))}). " +
-                                      "Fermez les fichiers et fenêtres ouverts sur ce lecteur, puis relancez.");
-
+            // supprimer l'emballage s'il est vide (jamais de suppression récursive : rien ne peut être perdu)
             try
             {
-                Retry(() =>
+                if (Directory.GetFileSystemEntries(folder).Length == 0)
                 {
-                    new DirectoryInfo(folder).Attributes = FileAttributes.Directory;
-                    Directory.Delete(folder, recursive: false);
-                });
+                    Retry(() =>
+                    {
+                        new DirectoryInfo(folder).Attributes = FileAttributes.Directory;
+                        Directory.Delete(folder, recursive: false);
+                    });
+                }
             }
             catch (Exception ex)
             {
-                throw new IOException("Vos fichiers ont été remis à leur place, mais le dossier vide n'a pas pu être supprimé " +
-                                      $"({ex.Message}). Fermez les fenêtres de l'Explorateur ouvertes sur ce dossier, puis relancez.");
+                failures.Add(Path.GetFileName(folder));
+                log($"Dossier vide « {Path.GetFileName(folder)} » non supprimé ({ex.Message}). " +
+                    "Fermez les fenêtres de l'Explorateur ouvertes dessus, puis relancez.");
             }
         }
 
