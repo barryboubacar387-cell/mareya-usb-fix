@@ -38,5 +38,6 @@ dotnet build src/MareyaUSBFix/MareyaUSBFix.csproj -c Release
 `tests/simulate-infection.ps1`. Ce test crée une infection simulée et inoffensive sur un faux
 lecteur, la répare, puis vérifie chaque point.
 
-Pour publier une nouvelle version, créez un tag `vX.Y.Z` : le fichier `.exe` est alors ajouté
-automatiquement à la page des versions.
+Pour publier une nouvelle version, allez dans **Actions → Compilation et tests → Run workflow**,
+puis indiquez le numéro de version (par exemple `1.1.0`). Vous pouvez aussi créer un tag `vX.Y.Z`.
+Dans les deux cas, le fichier `.exe` testé est ajouté automatiquement à la page des versions.
