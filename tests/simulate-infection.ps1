@@ -155,6 +155,22 @@ Check ($p.ExitCode -eq 0) "réparation réussie (code $($p.ExitCode))"
 Check ((Test-Path "$root\ancien.txt") -and -not (Test-Path "$root\Fichiers récupérés")) "fichiers de « Fichiers récupérés » remis à la racine, dossier supprimé"
 Check (IsHidden "$root\`$RECYCLE.BIN") "Corbeille de Windows recachée"
 
+Write-Host "== Fichier ouvert pendant la réparation"
+New-Item -ItemType Directory "$root\Fichiers récupérés" | Out-Null
+Set-Content "$root\Fichiers récupérés\libre.txt" "libre"
+Set-Content "$root\Fichiers récupérés\ouvert.txt" "ouvert"
+$lock = [IO.File]::Open("$root\Fichiers récupérés\ouvert.txt", 'Open', 'Read', 'None')
+$lockLog = Join-Path $backing "..\lock.log"
+$p = Start-Process $Exe -ArgumentList "/scan", $root, "/repair", "/log", "`"$lockLog`"" -Wait -PassThru
+Get-Content $lockLog | ForEach-Object { Write-Host "    $_" }
+Check ($p.ExitCode -ne 0) "le fichier bloqué est signalé (code $($p.ExitCode))"
+Check (Test-Path "$root\libre.txt") "les autres fichiers sont quand même remis à leur place"
+Check (Select-String -Path $lockLog -Pattern 'ouvert.txt' -Quiet) "le journal nomme le fichier bloqué"
+$lock.Close()
+$p = Start-Process $Exe -ArgumentList "/scan", $root, "/repair", "/log", "`"$lockLog`"" -Wait -PassThru
+Check ($p.ExitCode -eq 0) "une fois le fichier fermé, la réparation se termine (code $($p.ExitCode))"
+Check ((Test-Path "$root\ouvert.txt") -and -not (Test-Path "$root\Fichiers récupérés")) "fichier remis et dossier supprimé"
+
 Write-Host "== Disque propre avec des fichiers que Windows garde cachés"
 Set-Content "$root\pagefile.sys" "x"
 attrib +h +s "$root\pagefile.sys"

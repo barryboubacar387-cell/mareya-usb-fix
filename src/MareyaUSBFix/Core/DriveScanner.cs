@@ -207,40 +207,81 @@ namespace MareyaUSBFix.Core
         private void MoveBackToRoot(string folder, Action<string> log)
         {
             const string longPrefix = @"\\?\";
+            // toujours en chemin long : accepte les noms finissant par un espace ou un point
+            if (!folder.StartsWith(longPrefix, StringComparison.Ordinal)) folder = longPrefix + folder;
             string rootLong = longPrefix + _root;
             int moved = 0;
+            var failures = new List<string>();
+
             foreach (string entry in Directory.GetFileSystemEntries(folder))
             {
                 string name = Path.GetFileName(entry);
-                bool isDir = Directory.Exists(entry);
-                string target = FileOps.FreeName(rootLong, name, isDir);
-                if (isDir)
+                try
                 {
-                    new DirectoryInfo(entry).Attributes &= ~FileOps.HiddenOrSystem;
-                    Directory.Move(entry, target);
-                }
-                else
-                {
-                    File.SetAttributes(entry, File.GetAttributes(entry) & ~FileOps.HiddenOrSystem);
-                    File.Move(entry, target);
-                }
-                moved++;
-                string shortTarget = target.Substring(longPrefix.Length);
-                if (isDir)
-                {
-                    foreach (var inside in FileOps.Walk(shortTarget, MaxDepth).Where(e => ShouldUnhide(e, anyDepth: true)))
+                    bool isDir = Directory.Exists(entry);
+                    string target = FileOps.FreeName(rootLong, name, isDir);
+                    Retry(() =>
                     {
-                        try { FileOps.Unhide(inside); } catch { /* réessayé par le réaffichage général */ }
+                        if (isDir)
+                        {
+                            new DirectoryInfo(entry).Attributes &= ~(FileOps.HiddenOrSystem | FileAttributes.ReadOnly);
+                            Directory.Move(entry, target);
+                        }
+                        else
+                        {
+                            File.SetAttributes(entry, File.GetAttributes(entry) & ~FileOps.HiddenOrSystem);
+                            File.Move(entry, target);
+                        }
+                    });
+                    moved++;
+                    string shortTarget = target.Substring(longPrefix.Length);
+                    if (isDir)
+                    {
+                        foreach (var inside in FileOps.Walk(shortTarget, MaxDepth).Where(e => ShouldUnhide(e, anyDepth: true)))
+                        {
+                            try { FileOps.Unhide(inside); } catch { /* réessayé par le réaffichage général */ }
+                        }
                     }
+                    if (!string.Equals(Path.GetFileName(shortTarget), name, StringComparison.OrdinalIgnoreCase))
+                        log($"« {name} » existait déjà à la racine : remis sous le nom « {Path.GetFileName(shortTarget)} ».");
                 }
-                if (!string.Equals(Path.GetFileName(shortTarget), name, StringComparison.OrdinalIgnoreCase))
-                    log($"« {name} » existait déjà à la racine : remis sous le nom « {Path.GetFileName(shortTarget)} ».");
+                catch (Exception ex)
+                {
+                    failures.Add(name);
+                    log($"Impossible de remettre « {name} » à sa place : {ex.Message}");
+                }
             }
             log($"{moved} élément(s) remis à leur place.");
-
-            new DirectoryInfo(folder).Attributes = FileAttributes.Directory;
-            Directory.Delete(folder, recursive: false);
             RestoreWindowsFolders();
+
+            if (failures.Count > 0)
+                throw new IOException($"{failures.Count} élément(s) bloqué(s) ({string.Join(", ", failures.Take(3))}). " +
+                                      "Fermez les fichiers et fenêtres ouverts sur ce lecteur, puis relancez.");
+
+            try
+            {
+                Retry(() =>
+                {
+                    new DirectoryInfo(folder).Attributes = FileAttributes.Directory;
+                    Directory.Delete(folder, recursive: false);
+                });
+            }
+            catch (Exception ex)
+            {
+                throw new IOException("Vos fichiers ont été remis à leur place, mais le dossier vide n'a pas pu être supprimé " +
+                                      $"({ex.Message}). Fermez les fenêtres de l'Explorateur ouvertes sur ce dossier, puis relancez.");
+            }
+        }
+
+        /// <summary>Réessaie quelques fois : l'Explorateur ou l'antivirus retiennent parfois un fichier un court instant.</summary>
+        private static void Retry(Action action)
+        {
+            for (int attempt = 1; ; attempt++)
+            {
+                try { action(); return; }
+                catch (IOException) when (attempt < 5) { System.Threading.Thread.Sleep(400 * attempt); }
+                catch (UnauthorizedAccessException) when (attempt < 5) { System.Threading.Thread.Sleep(400 * attempt); }
+            }
         }
 
         /// <summary>Recache la Corbeille et le dossier système de Windows s'ils ont été rendus visibles.</summary>
