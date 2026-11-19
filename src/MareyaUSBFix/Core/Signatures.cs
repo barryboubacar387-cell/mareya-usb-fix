@@ -48,8 +48,16 @@ namespace MareyaUSBFix.Core
         /// <summary>Fichiers que Windows crée et garde cachés de lui-même.</summary>
         public static readonly HashSet<string> NormallyHiddenFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "desktop.ini", "thumbs.db", "ehthumbs.db", ".DS_Store", "IndexerVolumeGuid", "WPSettings.dat"
+            "desktop.ini", "thumbs.db", "ehthumbs.db", ".DS_Store", "IndexerVolumeGuid", "WPSettings.dat",
+            // fichiers système d'un disque (souvent verrouillés par Windows)
+            "pagefile.sys", "swapfile.sys", "hiberfil.sys", "DumpStack.log", "DumpStack.log.tmp",
+            "bootmgr", "BOOTNXT", "BOOTSECT.BAK", "MSOCache", "Config.Msi", "Documents and Settings",
+            "ProgramData", "OneDriveTemp", ".Trash-1000", ".Spotlight-V100", ".fseventsd", ".Trashes"
         };
+
+        /// <summary>Éléments gérés par Windows ou d'autres systèmes : noms commençant par « $ » (ex. $Windows.~BT).</summary>
+        public static bool IsSystemManagedName(string name) =>
+            name.StartsWith("$", StringComparison.Ordinal) || NormallyHiddenFiles.Contains(name) || ProtectedFolders.Contains(name);
 
         /// <summary>Noms de programmes Windows cités dans les raccourcis piégés : ce ne sont pas des fichiers à supprimer.</summary>
         private static readonly HashSet<string> SystemFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

@@ -145,7 +145,7 @@ namespace MareyaUSBFix.Core
                         // préfixe \\?\ : sinon Windows supprime les espaces finaux et ne trouve pas le dossier
                         Directory.Move(@"\\?\" + path, @"\\?\" + target);
                         FileOps.Unhide(new DirectoryInfo(target));
-                        foreach (var inside in FileOps.Walk(target, MaxDepth).Where(ShouldUnhide))
+                        foreach (var inside in FileOps.Walk(target, MaxDepth).Where(e => ShouldUnhide(e, anyDepth: true)))
                         {
                             try { FileOps.Unhide(inside); } catch { /* réessayé par le réaffichage général */ }
                         }
@@ -154,16 +154,21 @@ namespace MareyaUSBFix.Core
 
             // 6. Tout ce qui reste caché (vos fichiers) sera rendu visible
             var deletedPrefixes = findings.Where(f => f.Category == "Dossier du virus").Select(f => f.Location + "\\").ToList();
-            int toRestore = all.Count(e =>
+            var toRestore = all.Where(e =>
                 FileOps.IsHiddenOrSystem(e)
                 && ShouldUnhide(e)
                 && !flagged.Contains(e.FullName)
-                && !deletedPrefixes.Any(p => e.FullName.StartsWith(p, StringComparison.OrdinalIgnoreCase)));
-            if (toRestore > 0)
+                && !deletedPrefixes.Any(p => e.FullName.StartsWith(p, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (toRestore.Count > 0)
             {
-                findings.Add(new Finding(Severity.Malicious, "Fichiers cachés",
-                    $"{toRestore} fichier(s) ou dossier(s) rendus invisibles par le virus seront réaffichés", _root,
-                    () => UnhideAll(log), order: 2));
+                // Sans aucune trace du virus, des fichiers cachés peuvent être normaux : on laisse décider.
+                bool infected = findings.Any(f => f.Severity == Severity.Malicious);
+                string sample = string.Join(", ", toRestore.Take(3).Select(e => e.Name)) + (toRestore.Count > 3 ? "…" : "");
+                findings.Add(new Finding(infected ? Severity.Malicious : Severity.Suspect, "Fichiers cachés",
+                    infected
+                        ? $"{toRestore.Count} fichier(s) ou dossier(s) rendus invisibles par le virus seront réaffichés ({sample})"
+                        : $"{toRestore.Count} fichier(s) ou dossier(s) cachés, à réafficher si ce sont les vôtres ({sample})",
+                    _root, () => UnhideAll(log), order: 2));
             }
 
             log(findings.Count == 0 ? "Aucun problème trouvé." : $"{findings.Count} problème(s) trouvé(s).");
@@ -195,7 +200,7 @@ namespace MareyaUSBFix.Core
 
         private void UnhideAll(Action<string> log)
         {
-            int count = 0;
+            int count = 0, failed = 0;
             foreach (var entry in FileOps.Walk(_root, MaxDepth, IsVaccine))
             {
                 if (!ShouldUnhide(entry)) continue;
@@ -206,10 +211,13 @@ namespace MareyaUSBFix.Core
                 }
                 catch (Exception ex)
                 {
+                    failed++;
                     log($"Impossible de réafficher {entry.FullName} ({ex.Message})");
                 }
             }
             log($"{count} élément(s) réaffiché(s).");
+            if (failed > 0)
+                throw new IOException($"{failed} élément(s) n'ont pas pu être réaffichés (voir le journal ci-dessus)");
         }
 
         /// <summary>Un dossier caché dont tout le contenu est fait de scripts ou programmes.</summary>
@@ -229,12 +237,26 @@ namespace MareyaUSBFix.Core
             return onlyCode && files.Count <= 50;
         }
 
-        /// <summary>Fichiers que Windows garde normalement cachés : on ne les réaffiche pas.</summary>
-        private bool ShouldUnhide(FileSystemInfo e) =>
-            !Signatures.ProtectedFolders.Contains(e.Name)
-            && !Signatures.IsBlankName(e.Name) // ses attributs s'appliqueraient au dossier parent
-            && !Signatures.NormallyHiddenFiles.Contains(e.Name)
-            && !(e is DirectoryInfo d && IsVaccine(d));
+        /// <summary>
+        /// Ce qu'on réaffiche : ce que le virus a caché. On laisse cachés les fichiers gérés par Windows,
+        /// les liens système, et — sous la racine — les éléments seulement « cachés » sans l'attribut
+        /// « système » (ex. dossiers .git) : le virus, lui, pose les deux attributs.
+        /// </summary>
+        private bool ShouldUnhide(FileSystemInfo e) => ShouldUnhide(e, anyDepth: false);
+
+        private bool ShouldUnhide(FileSystemInfo e, bool anyDepth)
+        {
+            if (Signatures.IsSystemManagedName(e.Name)) return false;
+            if (Signatures.IsBlankName(e.Name)) return false; // ses attributs s'appliqueraient au dossier parent
+            if (e is DirectoryInfo d && IsVaccine(d)) return false;
+            FileAttributes attrs;
+            try { attrs = e.Attributes; } catch { return false; }
+            if ((attrs & FileAttributes.ReparsePoint) != 0) return false;
+            if (anyDepth) return true;
+            bool atRoot = string.Equals(ParentOf(e), _root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+            bool hiddenAndSystem = (attrs & FileAttributes.Hidden) != 0 && (attrs & FileAttributes.System) != 0;
+            return atRoot || hiddenAndSystem;
+        }
 
         private bool IsVaccine(DirectoryInfo dir) =>
             dir.Name.Equals(VaccineFolderName, StringComparison.OrdinalIgnoreCase)

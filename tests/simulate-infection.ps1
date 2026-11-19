@@ -135,6 +135,19 @@ Check (Test-Path "$root\Lien bloc-notes.lnk") "raccourci légitime conservé"
 Check (IsHidden "$root\Photos\desktop.ini") "desktop.ini laissé caché"
 Check ((Test-Path "$root\autorun.inf" -PathType Container)) "clé vaccinée (dossier autorun.inf protégé)"
 
+Write-Host "== Disque propre avec des fichiers que Windows garde cachés"
+Set-Content "$root\pagefile.sys" "x"
+attrib +h +s "$root\pagefile.sys"
+New-Item -ItemType Directory "$root\`$Windows.~BT" | Out-Null
+attrib +h +s "$root\`$Windows.~BT"
+New-Item -ItemType Directory "$root\Projet\.git" | Out-Null
+attrib +h "$root\Projet\.git"
+$cleanLog = Join-Path $backing "..\clean.log"
+$p = Start-Process $Exe -ArgumentList "/scan", $root, "/log", "`"$cleanLog`"" -Wait -PassThru
+Get-Content $cleanLog | ForEach-Object { Write-Host "    $_" }
+Check ($p.ExitCode -eq 0) "aucun faux virus signalé sur un disque propre (code $($p.ExitCode))"
+Check (-not (Select-String -Path $cleanLog -Pattern 'Fichiers cachés' -Quiet)) "fichiers système et .git non proposés au réaffichage"
+
 Write-Host "== Vérifications : ordinateur"
 $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MareyaTestVirus" -ErrorAction SilentlyContinue
 Check ($null -eq $run) "entrée de démarrage du registre supprimée"
