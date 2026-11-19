@@ -17,6 +17,9 @@ namespace MareyaUSBFix.Core
         private static readonly SecurityIdentifier Admins =
             new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
 
+        private static readonly SecurityIdentifier LocalSystem =
+            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+
         public static void TakeOwnershipRecursive(string path, Action<string> log = null)
         {
             EnablePrivilege("SeTakeOwnershipPrivilege");
@@ -36,8 +39,12 @@ namespace MareyaUSBFix.Core
                     var owner = new DirectorySecurity();
                     owner.SetOwner(Admins);
                     di.SetAccessControl(owner);
-                    var acl = di.GetAccessControl(AccessControlSections.Access);
+                    // on remplace toute la liste des droits (y compris d'éventuels refus explicites)
+                    var acl = new DirectorySecurity();
+                    acl.SetAccessRuleProtection(true, false);
                     acl.AddAccessRule(new FileSystemAccessRule(Admins, FileSystemRights.FullControl,
+                        InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+                    acl.AddAccessRule(new FileSystemAccessRule(LocalSystem, FileSystemRights.FullControl,
                         InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
                     di.SetAccessControl(acl);
                     di.Attributes = FileAttributes.Directory;
@@ -48,8 +55,10 @@ namespace MareyaUSBFix.Core
                     var owner = new FileSecurity();
                     owner.SetOwner(Admins);
                     fi.SetAccessControl(owner);
-                    var acl = fi.GetAccessControl(AccessControlSections.Access);
+                    var acl = new FileSecurity();
+                    acl.SetAccessRuleProtection(true, false);
                     acl.AddAccessRule(new FileSystemAccessRule(Admins, FileSystemRights.FullControl, AccessControlType.Allow));
+                    acl.AddAccessRule(new FileSystemAccessRule(LocalSystem, FileSystemRights.FullControl, AccessControlType.Allow));
                     fi.SetAccessControl(acl);
                     fi.Attributes = FileAttributes.Normal;
                 }

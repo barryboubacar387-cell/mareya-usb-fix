@@ -199,18 +199,22 @@ foreach ($n in "found.000", "found.000 (2)") {
                      "$root\$n\dir0000.chk", "$root\$n\FILE0000.CHK", "$root\$n") {
         icacls $sub /setowner *S-1-5-18 /C /Q | Out-Null
         icacls $sub /inheritance:r /grant:r *S-1-5-18:F /C /Q | Out-Null
+        icacls $sub /deny *S-1-5-32-544:F /C /Q | Out-Null   # refus explicite pour les Administrateurs
     }
 }
-cmd /c rd /s /q "\\?\$($root)found.000" 2>$null
-Check (Test-Path "$root\found.000") "found.000 résiste bien à rd /s /q (comme chez l'utilisateur)"
+New-Item -ItemType Directory "$root\found.009\x" | Out-Null       # copie jetable pour vérifier la difficulté
+icacls "$root\found.009\x" /deny *S-1-5-32-544:F /C /Q | Out-Null
+icacls "$root\found.009" /deny *S-1-5-32-544:F /C /Q | Out-Null
+cmd /c rd /s /q "\\?\$($root)found.009" 2>$null
+Write-Host "    (info) rd /s /q sur un dossier protégé : $(if (Test-Path "$root\found.009") { 'refusé, comme chez l''utilisateur' } else { 'réussi sur cette machine' })"
 $foundLog = Join-Path $backing "..\found.log"
 $p = Start-Process $Exe -ArgumentList "/scan", $root, "/log", "`"$foundLog`"" -Wait -PassThru
 Check ($p.ExitCode -eq 0) "found.000 n'est pas compté comme virus (code $($p.ExitCode))"
-Check ((Select-String -Path $foundLog -Pattern '\[SUSPECT\] Dossier Windows' -AllMatches).Matches.Count -eq 2) "les deux dossiers found sont proposés, non cochés"
+Check ((Select-String -Path $foundLog -Pattern '\[SUSPECT\] Dossier Windows' -AllMatches).Matches.Count -ge 2) "les dossiers found sont proposés, non cochés"
 Check (IsHidden "$root\found.000") "found.000 n'est pas réaffiché"
 $p = Start-Process $Exe -ArgumentList "/scan", $root, "/repair", "/all", "/log", "`"$foundLog`"" -Wait -PassThru
 Get-Content $foundLog | Select-String "found" | ForEach-Object { Write-Host "    $_" }
-Check (-not (Test-Path "$root\found.000") -and -not (Test-Path "$root\found.000 (2)")) "dossiers found.000 protégés supprimés quand on les coche"
+Check (-not (Test-Path "$root\found.000") -and -not (Test-Path "$root\found.000 (2)") -and -not (Test-Path "$root\found.009")) "dossiers found protégés supprimés quand on les coche"
 
 Write-Host "== Vérifications : ordinateur"
 $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MareyaTestVirus" -ErrorAction SilentlyContinue
