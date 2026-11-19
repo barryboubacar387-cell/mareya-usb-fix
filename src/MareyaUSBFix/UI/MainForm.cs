@@ -268,7 +268,7 @@ namespace MareyaUSBFix.UI
             if (suspects > 0)
             {
                 var answer = MessageBox.Show(this,
-                    $"Vous avez coché {suspects} élément(s) « à vérifier ». Ils seront supprimés définitivement.\n\nContinuer ?",
+                    $"Vous avez coché {suspects} élément(s) « à vérifier ». Ils seront retirés (placés en quarantaine sur le lecteur, restaurables ; les dossiers found.000 sont, eux, supprimés).\n\nContinuer ?",
                     "Confirmer la réparation", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (answer != DialogResult.Yes) return;
             }

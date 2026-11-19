@@ -13,6 +13,8 @@ namespace MareyaUSBFix.Core
     {
         public const string VaccineFolderName = "autorun.inf";
         public const string RecoveredFolderName = "Fichiers récupérés";
+        public const string QuarantineFolderName = "Quarantaine Mareya USB Fix";
+        private readonly string _quarantineStamp = DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss");
         private const int MaxDepth = 12;
         private const int MaxEntries = 300_000;
 
@@ -76,12 +78,12 @@ namespace MareyaUSBFix.Core
                     string reason = launcher
                         ? "Raccourci piégé : il lance un script ou un programme caché"
                         : "Raccourci qui remplace un dossier ou fichier caché";
-                    Add(findings, flagged, Severity.Malicious, "Raccourci", reason, lnk.FullName, () => FileOps.DeleteFile(lnk.FullName));
+                    Add(findings, flagged, Severity.Malicious, "Raccourci", reason, lnk.FullName, () => Quarantine(lnk.FullName, log));
                 }
                 else if (atRoot(lnk))
                 {
                     Add(findings, flagged, Severity.Suspect, "Raccourci", "Raccourci à la racine (vérifiez s'il vous appartient)", lnk.FullName,
-                        () => FileOps.DeleteFile(lnk.FullName));
+                        () => Quarantine(lnk.FullName, log));
                 }
             }
 
@@ -97,22 +99,24 @@ namespace MareyaUSBFix.Core
 
                 if (atRoot(file) && file.Name.Equals("autorun.inf", StringComparison.OrdinalIgnoreCase))
                 {
-                    Add(findings, flagged, Severity.Malicious, "Autorun", "Fichier de lancement automatique (autorun.inf)", path, () => FileOps.DeleteFile(path));
+                    Add(findings, flagged, Severity.Malicious, "Autorun", "Fichier de lancement automatique (autorun.inf)", path, () => Quarantine(path, log));
                 }
                 else if ((isScript || isExe) && (referenced || hidden))
                 {
                     // À la racine, ou cité par un raccourci piégé et caché : c'est le virus.
                     // Plus profond dans vos dossiers, on laisse décider (un script caché peut vous appartenir).
-                    bool sure = atRoot(file) || (referenced && hidden);
+                    // Un programme (.exe, .dll) n'est jamais supprimé d'office : un installateur caché peut
+                    // vous appartenir. Seul un programme lancé par un raccourci piégé est sûrement le virus.
+                    bool sure = isScript ? (atRoot(file) || (referenced && hidden)) : (referenced && (hidden || atRoot(file)));
                     string reason = referenced
                         ? "Fichier lancé par un raccourci piégé"
                         : (isScript ? "Script caché" : "Programme caché");
                     Add(findings, flagged, sure ? Severity.Malicious : Severity.Suspect, isScript ? "Script" : "Programme",
-                        sure ? reason : reason + " (vérifiez s'il vous appartient)", path, () => FileOps.DeleteFile(path));
+                        sure ? reason : reason + " (vérifiez s'il vous appartient)", path, () => Quarantine(path, log));
                 }
                 else if (isScript && atRoot(file))
                 {
-                    Add(findings, flagged, Severity.Suspect, "Script", "Script à la racine (vérifiez s'il vous appartient)", path, () => FileOps.DeleteFile(path));
+                    Add(findings, flagged, Severity.Suspect, "Script", "Script à la racine (vérifiez s'il vous appartient)", path, () => Quarantine(path, log));
                 }
             }
 
@@ -125,8 +129,10 @@ namespace MareyaUSBFix.Core
                 if (IsVirusFolder(dir, all))
                 {
                     string path = dir.FullName;
-                    Add(findings, flagged, Severity.Malicious, "Dossier du virus", "Dossier caché qui ne contient que des scripts ou programmes", path,
-                        () => FileOps.DeleteDirectory(path));
+                    bool known = Signatures.KnownMaliciousFolders.Contains(dir.Name);
+                    Add(findings, flagged, known ? Severity.Malicious : Severity.Suspect, "Dossier du virus",
+                        known ? "Dossier caché du virus (scripts)" : "Dossier caché qui ne contient que des scripts (vérifiez s'il vous appartient)", path,
+                        () => Quarantine(path, log));
                     // inutile de signaler séparément ce qu'il contient
                     findings.RemoveAll(f => f.Location.StartsWith(path + "\\", StringComparison.OrdinalIgnoreCase));
                 }
@@ -400,21 +406,53 @@ namespace MareyaUSBFix.Core
                 throw new IOException($"{failed} élément(s) n'ont pas pu être réaffichés (voir le journal ci-dessus)");
         }
 
-        /// <summary>Un dossier caché dont tout le contenu est fait de scripts ou programmes.</summary>
+        /// <summary>
+        /// Un dossier caché qui ne contient que des scripts (.vbs, .js…), quelques fichiers au plus.
+        /// Un dossier contenant des programmes (.exe) n'est JAMAIS considéré comme le virus : ce peut être
+        /// vos installateurs.
+        /// </summary>
         private static bool IsVirusFolder(DirectoryInfo dir, List<FileSystemInfo> all)
         {
             string prefix = dir.FullName + "\\";
             var inside = all.Where(e => e.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (inside.OfType<DirectoryInfo>().Any()) return false; // des sous-dossiers : probablement à vous
             var files = inside.OfType<FileInfo>().ToList();
-            if (files.Count == 0) return false;
-            bool onlyCode = files.All(f => Signatures.IsScript(f.FullName) || Signatures.IsExecutable(f.FullName)
-                                          || f.Extension.Equals(".lnk", StringComparison.OrdinalIgnoreCase)
-                                          || f.Extension.Equals(".ini", StringComparison.OrdinalIgnoreCase)
-                                          || f.Extension.Equals(".tmp", StringComparison.OrdinalIgnoreCase));
-            bool hasCode = files.Any(f => Signatures.IsScript(f.FullName) || Signatures.IsExecutable(f.FullName));
-            if (!hasCode) return false;
-            if (Signatures.KnownMaliciousFolders.Contains(dir.Name)) return onlyCode || files.Count <= 10;
-            return onlyCode && files.Count <= 50;
+            if (files.Count == 0 || files.Count > 10) return false;
+            bool onlyScripts = files.All(f => Signatures.IsScript(f.FullName)
+                                             || f.Extension.Equals(".ini", StringComparison.OrdinalIgnoreCase)
+                                             || f.Extension.Equals(".tmp", StringComparison.OrdinalIgnoreCase));
+            return onlyScripts && files.Any(f => Signatures.IsScript(f.FullName));
+        }
+
+        /// <summary>
+        /// Mise en quarantaine au lieu de suppression : l'élément est déplacé (instantané, même disque)
+        /// dans « Quarantaine Mareya USB Fix\date\ » à la racine, rendu inoffensif (extension
+        /// « .quarantaine » pour les fichiers) et restaurable à tout moment.
+        /// </summary>
+        private void Quarantine(string path, Action<string> log)
+        {
+            const string longPrefix = @"\\?\";
+            string source = path.StartsWith(longPrefix, StringComparison.Ordinal) ? path : longPrefix + path;
+            bool isDir = Directory.Exists(source);
+            if (!isDir && !File.Exists(source)) return;
+
+            string box = Path.Combine(longPrefix + _root, QuarantineFolderName, _quarantineStamp);
+            string relative = path.Substring(path.IndexOf(_root, StringComparison.OrdinalIgnoreCase) + _root.Length);
+            string targetDir = Path.Combine(box, Path.GetDirectoryName(relative) ?? "");
+            Directory.CreateDirectory(targetDir);
+            string name = Path.GetFileName(relative) + (isDir ? "" : ".quarantaine");
+            string target = FileOps.FreeName(targetDir, name, isDir);
+
+            try
+            {
+                if (isDir) new DirectoryInfo(source).Attributes = FileAttributes.Directory;
+                else File.SetAttributes(source, FileAttributes.Normal);
+            }
+            catch (Exception) { /* le déplacement peut réussir quand même */ }
+
+            if (isDir) Directory.Move(source, target);
+            else File.Move(source, target);
+            log($"Mis en quarantaine : {relative} → {QuarantineFolderName}\\{_quarantineStamp}");
         }
 
         /// <summary>

@@ -46,6 +46,16 @@ ils contiennent des morceaux de fichiers abîmés (`.CHK`), rarement utiles. Ils
 système, c'est pourquoi Windows refuse de les supprimer. Mareya USB Fix les affiche **en orange,
 non cochés** : cochez-les puis cliquez sur **Réparer la sélection** pour les supprimer.
 
+### Quarantaine : rien n'est supprimé définitivement
+
+Les éléments retirés de la clé (raccourcis piégés, scripts du virus…) ne sont pas effacés : ils
+sont déplacés dans le dossier **« Quarantaine Mareya USB Fix »** à la racine, rangés par date et
+rendus inoffensifs (extension `.quarantaine`). Si un élément vous appartenait, déplacez-le hors de
+ce dossier et retirez `.quarantaine` de son nom. Quand tout va bien, vous pouvez supprimer ce dossier.
+
+Un dossier ou un programme (.exe) n'est **jamais** retiré d'office parce qu'il est caché : vos
+installateurs sont simplement réaffichés.
+
 ## 4. Vacciner la clé (conseillé)
 
 Après la réparation, le logiciel propose de **vacciner** la clé. Il y crée un dossier protégé

@@ -36,13 +36,14 @@ namespace MareyaUSBFix.Core
         /// <summary>Dossiers cachés connus créés par des variantes du virus.</summary>
         public static readonly HashSet<string> KnownMaliciousFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "WindowsServices", "RECYCLER", "System32", "Windows Defender", "SysVolume"
+            "WindowsServices", "RECYCLER", "SysVolume"
         };
 
         /// <summary>Dossiers système légitimes à ne jamais toucher.</summary>
         public static readonly HashSet<string> ProtectedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "System Volume Information", "$RECYCLE.BIN", "$Recycle.Bin", "$WinREAgent", "Recovery", "Boot", "EFI"
+            "System Volume Information", "$RECYCLE.BIN", "$Recycle.Bin", "$WinREAgent", "Recovery", "Boot", "EFI",
+            "Quarantaine Mareya USB Fix"
         };
 
         /// <summary>Fichiers que Windows crée et garde cachés de lui-même.</summary>

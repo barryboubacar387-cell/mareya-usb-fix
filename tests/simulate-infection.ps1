@@ -48,12 +48,20 @@ Set-Content "$root\Projet\app.js" "console.log('projet légitime');"   # script 
 Set-Content "$root\Photos\desktop.ini" "[.ShellClassInfo]"
 attrib +h +s "$root\Photos\desktop.ini"
 NewShortcut "$root\Lien bloc-notes.lnk" "C:\Windows\notepad.exe" ""          # raccourci légitime : à conserver
+# installateurs de l'utilisateur, cachés par le virus (cas réel « SETUPS ») : ne doivent JAMAIS être supprimés
+New-Item -ItemType Directory "$root\Installateurs" | Out-Null
+Set-Content "$root\Installateurs\setup1.exe" "installateur 1"
+Set-Content "$root\Installateurs\setup2.exe" "installateur 2"
+attrib +h +s "$root\Installateurs\setup1.exe"
+attrib +h +s "$root\Installateurs"
+Set-Content "$root\outil.exe" "programme de l'utilisateur"
 
 # --- Infection simulée ---
 # 1. le virus cache les fichiers de l'utilisateur
 attrib +h +s "$root\Documents"
 attrib +h +s "$root\Photos"
 attrib +h +s "$root\notes.txt"
+attrib +h +s "$root\outil.exe"
 # 2. un script caché (inoffensif)
 Set-Content "$root\x8f2k.vbe" "' faux virus de test"
 attrib +h +s "$root\x8f2k.vbe"
@@ -147,6 +155,12 @@ Get-Content $repairLog | ForEach-Object { Write-Host "    $_" }
 Check ($p.ExitCode -eq 0) "plus aucun élément malveillant après réparation (code $($p.ExitCode))"
 
 Write-Host "== Vérifications : clé"
+Check ((Test-Path "$root\Installateurs\setup1.exe") -and (Test-Path "$root\Installateurs\setup2.exe")) "dossier caché d'installateurs (.exe) conservé"
+Check (-not (IsHidden "$root\Installateurs")) "dossier d'installateurs réaffiché"
+Check (Test-Path "$root\outil.exe") "programme caché non lancé par un raccourci conservé"
+$q = "$root\Quarantaine Mareya USB Fix"
+Check (Test-Path -LiteralPath $q) "éléments retirés placés en quarantaine (rien n'est supprimé définitivement)"
+Check (@(Get-ChildItem -LiteralPath $q -Recurse -Force -Filter "x8f2k.vbe.quarantaine").Count -eq 1) "script du virus restaurable depuis la quarantaine"
 Check (-not (IsHidden "$root\Documents")) "dossier Documents de nouveau visible"
 Check (-not (IsHidden "$root\Photos")) "dossier Photos de nouveau visible"
 Check (-not (IsHidden "$root\notes.txt")) "fichier notes.txt de nouveau visible"
