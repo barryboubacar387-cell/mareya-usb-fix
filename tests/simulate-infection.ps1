@@ -89,6 +89,7 @@ Set-Content $evilTask "' test"
 Set-Content $evilSleep "WScript.Sleep 600000"
 New-Item -ItemType Directory $startup -Force | Out-Null
 Set-Content $evilStartup "' test"
+New-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Force -ErrorAction SilentlyContinue | Out-Null
 New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MareyaTestVirus" `
     -Value "wscript.exe //B `"$evilRun`"" -PropertyType String -Force | Out-Null
 schtasks /Create /TN "MareyaTestVirusTask" /TR "wscript.exe //B `"$evilTask`"" /SC ONLOGON /F | Out-Null
