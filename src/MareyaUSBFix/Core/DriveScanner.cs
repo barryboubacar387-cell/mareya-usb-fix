@@ -137,10 +137,13 @@ namespace MareyaUSBFix.Core
             foreach (var dir in all.OfType<DirectoryInfo>().Where(d => atRoot(d) && Signatures.IsBlankName(d.Name)))
             {
                 if (flagged.Contains(dir.FullName)) continue;
-                string path = dir.FullName;
+                // Chemin construit avec le nom exact : Windows supprime les espaces finaux de FullName,
+                // qui désignerait alors la racine elle-même.
+                string rawName = dir.Name;
+                string path = @"\\?\" + Path.Combine(_root, rawName);
                 Add(findings, flagged, Severity.Malicious, "Fichiers cachés",
                     "Dossier sans nom créé par le virus : vos fichiers seront remis à leur place et le dossier supprimé", path,
-                    () => MoveBackToRoot(@"\\?\" + path, log), order: 1);
+                    () => MoveBackToRoot(path, log), order: 1);
             }
 
             //    Même chose pour un dossier « Fichiers récupérés » laissé par une version précédente du logiciel.
@@ -219,6 +222,10 @@ namespace MareyaUSBFix.Core
             // toujours en chemin long : accepte les noms finissant par un espace ou un point
             if (!folder.StartsWith(longPrefix, StringComparison.Ordinal)) folder = longPrefix + folder;
             string rootLong = longPrefix + _root;
+            // garde-fou : ne jamais traiter la racine elle-même comme le dossier à vider
+            if (string.Equals(folder.TrimEnd('\\'), rootLong.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
+                || Path.GetFileName(folder.TrimEnd('\\')).Length == 0)
+                throw new InvalidOperationException("Chemin du dossier caché invalide : opération annulée par sécurité.");
             int moved = 0;
             var failures = new List<string>();
 

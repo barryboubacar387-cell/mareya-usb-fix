@@ -80,6 +80,11 @@ New-Item -ItemType Directory -Path "$root$blank\Vacances" | Out-Null
 Set-Content -LiteralPath "$root$blank\Vacances\plage.jpg" "image"
 attrib +h +s "$root$blank\Vacances"
 attrib +h +s "$root$blank"
+# variante : nom fait d'espaces ordinaires (Windows les supprime des chemins normaux)
+$spaces = "   "
+New-Item -ItemType Directory -Path "\\?\$root$spaces" | Out-Null
+Set-Content -LiteralPath "\\?\$root$spaces\rapport-espaces.txt" "dans le dossier aux espaces"
+attrib +h +s "\\?\$root$spaces"
 
 # --- Infection simulée de l'ordinateur ---
 $appData = [Environment]::GetFolderPath("ApplicationData")
@@ -136,6 +141,9 @@ Check ((Test-Path "$root\Vacances\plage.jpg") -and -not (IsHidden "$root\Vacance
 Check ((Get-Content "$root\notes.txt") -eq "mes notes") "fichier existant non écrasé"
 Check ((Get-Content "$root\notes (2).txt") -eq "autre version des notes") "doublon remis sous le nom « notes (2).txt »"
 Check (-not (Test-Path -LiteralPath "$root$blank")) "dossier sans nom du virus supprimé"
+Check (Test-Path "$root\rapport-espaces.txt") "dossier aux espaces ordinaires : fichiers remis à la racine"
+Check (-not (Test-Path -LiteralPath "\\?\$root$spaces")) "dossier aux espaces ordinaires supprimé"
+Check (-not (Get-ChildItem -LiteralPath $root -Force | Where-Object { $_.Name -like '* (2)*' -and $_.Name -ne 'notes (2).txt' })) "aucun élément de la racine renommé « (2) » par erreur"
 Check (-not (Test-Path -LiteralPath "$root\Fichiers récupérés")) "pas de dossier « Fichiers récupérés » laissé"
 $walked = (Select-String -Path $scanLog -Pattern '(\d+) éléments parcourus').Matches[0].Groups[1].Value -as [int]
 Check ($walked -lt 40) "la clé n'est parcourue qu'une fois ($walked éléments)"
