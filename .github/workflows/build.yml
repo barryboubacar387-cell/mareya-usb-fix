@@ -1,0 +1,43 @@
+name: Compilation et tests
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compiler
+        run: dotnet build src/MareyaUSBFix/MareyaUSBFix.csproj -c Release
+
+      - name: Test sur une clé infectée simulée
+        shell: pwsh
+        run: ./tests/simulate-infection.ps1 -Exe src/MareyaUSBFix/bin/Release/net48/MareyaUSBFix.exe
+
+      - name: Préparer le fichier à télécharger
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item src/MareyaUSBFix/bin/Release/net48/MareyaUSBFix.exe dist/
+          Copy-Item docs/GUIDE.md dist/GUIDE.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MareyaUSBFix
+          path: dist/
+
+      - name: Publier la version
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/MareyaUSBFix.exe
+          body_path: docs/RELEASE_NOTES.md
