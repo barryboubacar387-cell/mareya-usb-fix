@@ -452,6 +452,7 @@ namespace MareyaUSBFix.Core
 
             if (isDir) Directory.Move(source, target);
             else File.Move(source, target);
+            QuarantineStore.Record(box, relative, target);
             log($"Mis en quarantaine : {relative} → {QuarantineFolderName}\\{_quarantineStamp}");
         }
 

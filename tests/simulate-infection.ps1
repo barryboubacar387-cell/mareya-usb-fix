@@ -264,6 +264,16 @@ $p = Start-Process $Exe -ArgumentList "/scan", $root, "/repair", "/all", "/log",
 Get-Content $foundLog | Select-String "found" | ForEach-Object { Write-Host "    $_" }
 Check (-not (Test-Path "$root\found.000") -and -not (Test-Path "$root\found.000 (2)") -and -not (Test-Path "$root\found.009")) "dossiers found protégés supprimés quand on les coche"
 
+Write-Host "== Quarantaine : rapport et restauration"
+Check (@(Get-ChildItem -LiteralPath "$root\Quarantaine Mareya USB Fix" -Filter "rapport*.txt").Count -ge 1) "rapport de réparation enregistré"
+$restoreLog = Join-Path $backing "..\restore.log"
+$p = Start-Process $Exe -ArgumentList "/restore", $root, "/log", "`"$restoreLog`"" -Wait -PassThru
+Get-Content $restoreLog | ForEach-Object { Write-Host "    $_" }
+Check ($p.ExitCode -eq 0) "restauration sans erreur (code $($p.ExitCode))"
+Check (Test-Path "$root\x8f2k.vbe") "fichier restauré à son emplacement d'origine, avec son vrai nom"
+Check (Test-Path "$root\WindowsServices\helper.vbs") "dossier restauré avec son contenu"
+Check (Test-Path "$root\Documents.lnk") "raccourci restauré"
+
 Write-Host "== Vérifications : ordinateur"
 $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MareyaTestVirus" -ErrorAction SilentlyContinue
 Check ($null -eq $run) "entrée de démarrage du registre supprimée"

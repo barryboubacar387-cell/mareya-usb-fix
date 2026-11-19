@@ -1,0 +1,27 @@
+name: Retirer des versions
+
+# Supprime des versions publiées (et leur .exe) sans toucher au code ni aux étiquettes git.
+# Utilisé pour retirer des versions contenant un défaut dangereux.
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: "Étiquettes à retirer, séparées par des espaces (ex. v1.0.0 v1.0.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  retirer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Supprimer les versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSIONS: ${{ inputs.versions }}
+        run: |
+          for v in $VERSIONS; do
+            echo "Retrait de $v"
+            gh release delete "$v" --repo "$GITHUB_REPOSITORY" --yes || echo "  (absente)"
+          done

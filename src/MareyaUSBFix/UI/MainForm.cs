@@ -19,6 +19,7 @@ namespace MareyaUSBFix.UI
         private readonly Button _repair = MakeButton("Réparer la sélection", primary: true);
         private readonly Button _vaccinate = MakeButton("Vacciner la clé", primary: false);
         private readonly Button _refresh = MakeButton("Actualiser", primary: false);
+        private readonly Button _quarantine = MakeButton("Quarantaine…", primary: false);
         private readonly ListView _list = new ListView
         {
             View = View.Details, CheckBoxes = true, FullRowSelect = true, Dock = DockStyle.Fill,
@@ -104,7 +105,7 @@ namespace MareyaUSBFix.UI
             driveRow.Controls.Add(_refresh, 2, 0);
 
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 4), WrapContents = true };
-            buttons.Controls.AddRange(new Control[] { _scan, _repair, _vaccinate });
+            buttons.Controls.AddRange(new Control[] { _scan, _repair, _vaccinate, _quarantine });
 
             var statusRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0) };
             statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -140,6 +141,11 @@ namespace MareyaUSBFix.UI
             _scan.Click += async (s, e) => await ScanAsync();
             _repair.Click += async (s, e) => await RepairAsync();
             _vaccinate.Click += (s, e) => VaccinateSelected();
+            _quarantine.Click += (s, e) =>
+            {
+                if (SelectedRoot == null) return;
+                using (var f = new QuarantineForm(SelectedRoot)) f.ShowDialog(this);
+            };
             _list.ItemChecked += (s, e) =>
             {
                 if (e.Item.Tag is Finding f) f.Selected = e.Item.Checked;
@@ -277,8 +283,16 @@ namespace MareyaUSBFix.UI
             SetBusy(true, "Réparation en cours…");
             try
             {
+                int logStart = _log.TextLength;
                 int ok = await Task.Run(() => DriveScanner.Repair(_findings, LogFromWorker));
                 Log($"{ok} correction(s) sur {selected.Count} appliquée(s).");
+                Application.DoEvents(); // laisser s'afficher les dernières lignes du journal
+                try
+                {
+                    var lines = _log.Text.Substring(logStart).Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+                    Log("Rapport enregistré : " + QuarantineStore.SaveReport(root, lines));
+                }
+                catch (Exception ex) { Log("Rapport non enregistré : " + ex.Message); }
 
                 // nouvelle analyse pour vérifier
                 bool withSystem = _includeSystem.Checked;
@@ -417,6 +431,7 @@ namespace MareyaUSBFix.UI
             bool hasDrive = SelectedRoot != null;
             _scan.Enabled = hasDrive && !_busy;
             _vaccinate.Enabled = hasDrive && !_busy;
+            _quarantine.Enabled = hasDrive && !_busy;
             _refresh.Enabled = !_busy;
             _drives.Enabled = !_busy;
             _repair.Enabled = !_busy && _findings.Any(f => f.Selected);

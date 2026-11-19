@@ -17,7 +17,8 @@ namespace MareyaUSBFix
         [STAThread]
         private static int Main(string[] args)
         {
-            if (args.Any(a => a.Equals("/scan", StringComparison.OrdinalIgnoreCase)))
+            if (args.Any(a => a.Equals("/scan", StringComparison.OrdinalIgnoreCase)
+                              || a.Equals("/restore", StringComparison.OrdinalIgnoreCase)))
                 return RunCommandLine(args);
 
             Application.EnableVisualStyles();
@@ -48,6 +49,21 @@ namespace MareyaUSBFix
             string target = Arg("/scan");
             string logFile = Arg("/log");
             int remaining;
+
+            // MareyaUSBFix.exe /restore E:\ : remet à leur place tous les éléments de la quarantaine
+            string restoreRoot = Arg("/restore");
+            if (restoreRoot != null)
+            {
+                int failed = 0;
+                foreach (var entry in QuarantineStore.List(restoreRoot))
+                {
+                    try { Log("Restauré : " + QuarantineStore.Restore(restoreRoot, entry)); }
+                    catch (Exception ex) { failed++; Log($"Échec : {entry.OriginalRelative} ({ex.Message})"); }
+                }
+                if (!string.IsNullOrEmpty(logFile)) File.WriteAllLines(logFile, lines);
+                return failed;
+            }
+
             try
             {
                 var findings = new List<Finding>();
@@ -63,6 +79,8 @@ namespace MareyaUSBFix
                 {
                     int fixedCount = DriveScanner.Repair(findings, Log);
                     Log($"{fixedCount} correction(s) appliquée(s).");
+                    try { Log("Rapport enregistré : " + QuarantineStore.SaveReport(target, lines.ToList())); }
+                    catch (Exception ex) { Log("Rapport non enregistré : " + ex.Message); }
                     var after = new DriveScanner(target).Scan(Log);
                     foreach (var f in after) Log("Restant : " + f);
                     remaining = after.Count(f => f.Severity == Severity.Malicious);
