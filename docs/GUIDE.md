@@ -39,6 +39,13 @@ Si le virus les avait rangés dans un dossier caché sans nom, ils sont remis à
 dossier est supprimé. Si un fichier du même nom existait déjà, il est conservé sous le nom
 « nom (2) » : rien n'est écrasé.
 
+### Dossiers « found.000 »
+
+Ces dossiers (`found.000`, `found.001`…) sont créés par **Windows** quand il répare un disque :
+ils contiennent des morceaux de fichiers abîmés (`.CHK`), rarement utiles. Ils appartiennent au
+système, c'est pourquoi Windows refuse de les supprimer. Mareya USB Fix les affiche **en orange,
+non cochés** : cochez-les puis cliquez sur **Réparer la sélection** pour les supprimer.
+
 ## 4. Vacciner la clé (conseillé)
 
 Après la réparation, le logiciel propose de **vacciner** la clé. Il y crée un dossier protégé
@@ -94,6 +101,7 @@ MareyaUSBFix.exe /scan E:\ [/system] [/repair] [/vaccinate] [/log rapport.txt]
 | `/scan E:\` | lecteur à analyser |
 | `/system` | analyse aussi l'ordinateur |
 | `/repair` | applique les corrections (éléments du virus uniquement) |
+| `/all` | avec `/repair` : inclut aussi les éléments « à vérifier » |
 | `/vaccinate` | vaccine le lecteur |
 | `/log fichier` | enregistre le rapport |
 

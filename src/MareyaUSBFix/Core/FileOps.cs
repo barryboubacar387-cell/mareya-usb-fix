@@ -22,6 +22,39 @@ namespace MareyaUSBFix.Core
             File.Delete(path);
         }
 
+        /// <summary>
+        /// Supprime un dossier protégé (ex. found.000, propriété du système) : on essaie normalement,
+        /// sinon on en reprend la propriété pour les Administrateurs, on s'accorde les droits, puis on réessaie.
+        /// </summary>
+        public static void ForceDeleteDirectory(string path, Action<string> log = null)
+        {
+            try
+            {
+                DeleteDirectory(path);
+                return;
+            }
+            catch (Exception first)
+            {
+                log?.Invoke($"Suppression normale refusée ({first.Message}) : reprise de la propriété de {path}…");
+            }
+
+            const string admins = "*S-1-5-32-544"; // groupe Administrateurs, quelle que soit la langue de Windows
+            SystemCleaner.RunQuiet("icacls.exe", $"\"{path}\" /setowner {admins} /T /C /Q");
+            SystemCleaner.RunQuiet("icacls.exe", $"\"{path}\" /grant {admins}:F /T /C /Q");
+            SystemCleaner.RunQuiet("attrib.exe", $"-h -s -r \"{path}\\*\" /s /d");
+            try
+            {
+                DeleteDirectory(path);
+            }
+            catch
+            {
+                SystemCleaner.RunQuiet("cmd.exe", $"/c rd /s /q \"\\\\?\\{path}\"");
+                if (Directory.Exists(path))
+                    throw new IOException("Dossier toujours protégé. Lancez « chkdsk " + Path.GetPathRoot(path).TrimEnd('\\') +
+                                          " /f » en administrateur pour réparer le disque, puis réessayez.");
+            }
+        }
+
         public static void DeleteDirectory(string path)
         {
             if (!Directory.Exists(path)) return;

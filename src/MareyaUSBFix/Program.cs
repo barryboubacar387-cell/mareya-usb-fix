@@ -29,7 +29,7 @@ namespace MareyaUSBFix
 
         /// <summary>
         /// Mode ligne de commande (pour les techniciens et les tests automatiques) :
-        ///   MareyaUSBFix.exe /scan E:\ [/repair] [/system] [/vaccinate] [/log fichier.txt]
+        ///   MareyaUSBFix.exe /scan E:\ [/repair] [/all] [/system] [/vaccinate] [/log fichier.txt]
         /// Code de retour : nombre d'éléments malveillants restants (0 = propre).
         /// </summary>
         private static int RunCommandLine(string[] args)
@@ -55,6 +55,9 @@ namespace MareyaUSBFix
                 var scanner = new DriveScanner(target);
                 findings.AddRange(scanner.Scan(Log));
                 foreach (var f in findings) Log(f.ToString());
+
+                if (Flag("/all"))
+                    foreach (var f in findings) f.Selected = true; // inclut les éléments « à vérifier »
 
                 if (Flag("/repair"))
                 {

@@ -187,6 +187,24 @@ Get-Content $cleanLog | ForEach-Object { Write-Host "    $_" }
 Check ($p.ExitCode -eq 0) "aucun faux virus signalé sur un disque propre (code $($p.ExitCode))"
 Check (-not (Select-String -Path $cleanLog -Pattern 'Fichiers cachés' -Quiet)) "fichiers système et .git non proposés au réaffichage"
 
+Write-Host "== Dossiers found.000 de Windows (protégés, propriété du système)"
+foreach ($n in "found.000", "found.000 (2)") {
+    New-Item -ItemType Directory "$root\$n" | Out-Null
+    Set-Content "$root\$n\FILE0000.CHK" "fragment"
+    attrib +h +s "$root\$n"
+    # comme sur un vrai disque : appartient à SYSTEM, les Administrateurs n'ont aucun droit
+    icacls "$root\$n" /setowner *S-1-5-18 /T /C /Q | Out-Null
+    icacls "$root\$n" /inheritance:r /grant:r *S-1-5-18:F /T /C /Q | Out-Null
+}
+$foundLog = Join-Path $backing "..\found.log"
+$p = Start-Process $Exe -ArgumentList "/scan", $root, "/log", "`"$foundLog`"" -Wait -PassThru
+Check ($p.ExitCode -eq 0) "found.000 n'est pas compté comme virus (code $($p.ExitCode))"
+Check ((Select-String -Path $foundLog -Pattern '\[SUSPECT\] Dossier Windows' -AllMatches).Matches.Count -eq 2) "les deux dossiers found sont proposés, non cochés"
+Check (IsHidden "$root\found.000") "found.000 n'est pas réaffiché"
+$p = Start-Process $Exe -ArgumentList "/scan", $root, "/repair", "/all", "/log", "`"$foundLog`"" -Wait -PassThru
+Get-Content $foundLog | Select-String "found" | ForEach-Object { Write-Host "    $_" }
+Check (-not (Test-Path "$root\found.000") -and -not (Test-Path "$root\found.000 (2)")) "dossiers found.000 protégés supprimés quand on les coche"
+
 Write-Host "== Vérifications : ordinateur"
 $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MareyaTestVirus" -ErrorAction SilentlyContinue
 Check ($null -eq $run) "entrée de démarrage du registre supprimée"

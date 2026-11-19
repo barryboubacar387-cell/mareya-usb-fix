@@ -154,6 +154,15 @@ namespace MareyaUSBFix.Core
                     () => MoveBackToRoot(path, log), order: 1);
             }
 
+            //    Dossiers « found.000 » de Windows : proposés (non cochés) à la suppression.
+            foreach (var dir in all.OfType<DirectoryInfo>().Where(d => atRoot(d) && Signatures.IsChkdskFolder(d.Name)))
+            {
+                string path = dir.FullName;
+                Add(findings, flagged, Severity.Suspect, "Dossier Windows",
+                    "Créé par la réparation de disque de Windows (morceaux de fichiers abîmés .CHK) : peut être supprimé", path,
+                    () => FileOps.ForceDeleteDirectory(path, log));
+            }
+
             // 6. Tout ce qui reste caché (vos fichiers) sera rendu visible
             var deletedPrefixes = findings.Where(f => f.Category == "Dossier du virus").Select(f => f.Location + "\\").ToList();
             var toRestore = all.Where(e =>

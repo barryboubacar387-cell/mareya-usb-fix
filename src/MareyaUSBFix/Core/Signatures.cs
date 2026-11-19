@@ -57,7 +57,14 @@ namespace MareyaUSBFix.Core
 
         /// <summary>Éléments gérés par Windows ou d'autres systèmes : noms commençant par « $ » (ex. $Windows.~BT).</summary>
         public static bool IsSystemManagedName(string name) =>
-            name.StartsWith("$", StringComparison.Ordinal) || NormallyHiddenFiles.Contains(name) || ProtectedFolders.Contains(name);
+            name.StartsWith("$", StringComparison.Ordinal) || NormallyHiddenFiles.Contains(name) || ProtectedFolders.Contains(name)
+            || IsChkdskFolder(name);
+
+        private static readonly Regex ChkdskFolderRegex =
+            new Regex(@"^found\.\d{3}( \(\d+\))?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>Dossiers « found.000 » créés par la réparation de disque de Windows (chkdsk).</summary>
+        public static bool IsChkdskFolder(string name) => ChkdskFolderRegex.IsMatch(name);
 
         /// <summary>Noms de programmes Windows cités dans les raccourcis piégés : ce ne sont pas des fichiers à supprimer.</summary>
         private static readonly HashSet<string> SystemFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
