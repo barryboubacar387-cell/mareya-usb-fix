@@ -6,7 +6,7 @@ ou un disque dur et les remplace par des raccourcis.
 ## 1. Télécharger
 
 Téléchargez **`MareyaUSBFix.exe`** depuis la page des versions :
-https://github.com/barryboubacar387-cell/mareya-usb-fix/releases/latest
+https://github.com/mareya-group/mareya-usb-fix/releases/latest
 
 Il n'y a rien à installer. Le logiciel fonctionne sur Windows 7, 8, 10 et 11.
 

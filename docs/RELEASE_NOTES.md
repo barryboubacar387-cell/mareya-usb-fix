@@ -8,4 +8,4 @@ Il fonctionne sur Windows 7, 8, 10 et 11.
 Au premier lancement, si Windows affiche « Windows a protégé votre ordinateur », cliquez sur
 **Informations complémentaires**, puis sur **Exécuter quand même**.
 
-Guide complet : https://github.com/barryboubacar387-cell/mareya-usb-fix/blob/main/docs/GUIDE.md
+Guide complet : https://github.com/mareya-group/mareya-usb-fix/blob/main/docs/GUIDE.md

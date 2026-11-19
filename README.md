@@ -8,7 +8,7 @@ qui réinfecte les clés, et peut protéger automatiquement chaque clé branché
 
 ## Télécharger
 
-➡️ **[Télécharger MareyaUSBFix.exe](https://github.com/barryboubacar387-cell/mareya-usb-fix/releases/latest)**
+➡️ **[Télécharger MareyaUSBFix.exe](https://github.com/mareya-group/mareya-usb-fix/releases/latest)**
 
 Un seul fichier d'environ 120 Ko, sans installation. Il fonctionne sur Windows 7, 8, 10 et 11.
 
