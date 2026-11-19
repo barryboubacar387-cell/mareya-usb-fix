@@ -294,7 +294,7 @@ namespace MareyaUSBFix.Core
                     {
                         Retry(move);
                     }
-                    catch (UnauthorizedAccessException)
+                    catch (Exception ex) when (IsAccessDenied(ex))
                     {
                         // dossier protégé (propriété du système, droits retirés) : on en reprend la propriété puis on réessaie
                         log($"Accès refusé à « {name} » : reprise de la propriété…");
@@ -339,6 +339,13 @@ namespace MareyaUSBFix.Core
                     "Fermez les fenêtres de l'Explorateur ouvertes dessus, puis relancez.");
             }
         }
+
+        /// <summary>
+        /// Refus d'accès. Attention : pour un dossier, Directory.Move le signale par une IOException
+        /// (code Windows 5) et non par une UnauthorizedAccessException.
+        /// </summary>
+        private static bool IsAccessDenied(Exception ex) =>
+            ex is UnauthorizedAccessException || (ex is IOException && (ex.HResult & 0xFFFF) == 5);
 
         /// <summary>Réessaie quelques fois : l'Explorateur ou l'antivirus retiennent parfois un fichier un court instant.</summary>
         private static void Retry(Action action)
