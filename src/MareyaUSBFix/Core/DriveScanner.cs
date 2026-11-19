@@ -316,7 +316,7 @@ namespace MareyaUSBFix.Core
                 catch (Exception ex)
                 {
                     failures.Add(name);
-                    log($"Impossible de remettre « {name} » à sa place : {ex.Message}");
+                    log($"Impossible de remettre « {name} » à sa place : {ex.Message} [{ex.GetType().Name} 0x{ex.HResult:X8}]");
                 }
             }
 
