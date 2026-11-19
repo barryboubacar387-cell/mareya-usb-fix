@@ -279,16 +279,17 @@ namespace MareyaUSBFix.Core
                     string target = FileOps.FreeName(rootLong, name, isDir);
                     Action move = () =>
                     {
-                        if (isDir)
+                        // Retirer « caché/système » est un confort : un refus ici (que .NET signale par une
+                        // ArgumentException !) ne doit pas empêcher le déplacement lui-même.
+                        try
                         {
-                            new DirectoryInfo(entry).Attributes &= ~(FileOps.HiddenOrSystem | FileAttributes.ReadOnly);
-                            Directory.Move(entry, target);
+                            if (isDir) new DirectoryInfo(entry).Attributes &= ~(FileOps.HiddenOrSystem | FileAttributes.ReadOnly);
+                            else File.SetAttributes(entry, File.GetAttributes(entry) & ~FileOps.HiddenOrSystem);
                         }
-                        else
-                        {
-                            File.SetAttributes(entry, File.GetAttributes(entry) & ~FileOps.HiddenOrSystem);
-                            File.Move(entry, target);
-                        }
+                        catch (Exception) { /* réessayé après le déplacement par le réaffichage général */ }
+
+                        if (isDir) Directory.Move(entry, target);
+                        else File.Move(entry, target);
                     };
                     try
                     {
@@ -345,7 +346,10 @@ namespace MareyaUSBFix.Core
         /// (code Windows 5) et non par une UnauthorizedAccessException.
         /// </summary>
         private static bool IsAccessDenied(Exception ex) =>
-            ex is UnauthorizedAccessException || (ex is IOException && (ex.HResult & 0xFFFF) == 5);
+            ex is UnauthorizedAccessException
+            || (ex is IOException && (ex.HResult & 0xFFFF) == 5)
+            || (ex is ArgumentException && ex.Message.IndexOf("denied", StringComparison.OrdinalIgnoreCase) >= 0)
+            || (ex is ArgumentException && ex.Message.IndexOf("refusé", StringComparison.OrdinalIgnoreCase) >= 0);
 
         /// <summary>Réessaie quelques fois : l'Explorateur ou l'antivirus retiennent parfois un fichier un court instant.</summary>
         private static void Retry(Action action)
