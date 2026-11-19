@@ -85,6 +85,14 @@ $wrap2 = "$wrap1\Files are hidden by Trojan"
 New-Item -ItemType Directory -Path "$wrap2\Profond" | Out-Null
 Set-Content -LiteralPath "$wrap2\Profond\doc.txt" "fichier très profond"
 Set-Content -LiteralPath "$wrap1\Pilotes.zip" "zip"
+# dossier protégé (cas réel « SETUPS ») : appartient à SYSTEM, refus explicite pour les Administrateurs
+New-Item -ItemType Directory -Path "$wrap2\SETUPS" | Out-Null
+Set-Content -LiteralPath "$wrap2\SETUPS\setup.exe" "installateur"
+icacls "$wrap2\SETUPS\setup.exe" /setowner *S-1-5-18 /C /Q | Out-Null
+icacls "$wrap2\SETUPS\setup.exe" /inheritance:r /grant:r *S-1-5-18:F /C /Q | Out-Null
+icacls "$wrap2\SETUPS" /setowner *S-1-5-18 /C /Q | Out-Null
+icacls "$wrap2\SETUPS" /inheritance:r /grant:r *S-1-5-18:F /C /Q | Out-Null
+icacls "$wrap2\SETUPS" /deny *S-1-5-32-544:F /C /Q | Out-Null
 foreach ($w in $wrap1, $wrap2) {
     Set-Content -LiteralPath "$w\AUTORUN_.INF" "[autorun]"
     Set-Content -LiteralPath "$w\desktop.ini" "[.ShellClassInfo]"
@@ -156,6 +164,7 @@ Check ((Get-Content "$root\notes (2).txt") -eq "autre version des notes") "doubl
 Check (-not (Test-Path -LiteralPath "$root$blank")) "dossier sans nom du virus supprimé"
 Check (Test-Path "$root\Profond\doc.txt") "emballages « Files are hidden by Trojan » imbriqués : fichiers profonds remis à la racine"
 Check (Test-Path "$root\Pilotes.zip") "fichiers du premier emballage remis à la racine"
+Check ([IO.Directory]::Exists("$root\SETUPS")) "dossier protégé SETUPS remis à la racine après reprise de propriété"
 Check (-not (Test-Path "$root\Files are hidden by Trojan")) "aucun emballage « Files are hidden by Trojan » laissé"
 Check (-not (Test-Path "$root\AUTORUN_.INF")) "déchets du virus (AUTORUN_.INF) non remis à la racine"
 Check (Test-Path "$root\rapport-espaces.txt") "dossier aux espaces ordinaires : fichiers remis à la racine"

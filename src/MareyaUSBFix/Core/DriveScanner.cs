@@ -277,7 +277,7 @@ namespace MareyaUSBFix.Core
                     }
 
                     string target = FileOps.FreeName(rootLong, name, isDir);
-                    Retry(() =>
+                    Action move = () =>
                     {
                         if (isDir)
                         {
@@ -289,7 +289,18 @@ namespace MareyaUSBFix.Core
                             File.SetAttributes(entry, File.GetAttributes(entry) & ~FileOps.HiddenOrSystem);
                             File.Move(entry, target);
                         }
-                    });
+                    };
+                    try
+                    {
+                        Retry(move);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        // dossier protégé (propriété du système, droits retirés) : on en reprend la propriété puis on réessaie
+                        log($"Accès refusé à « {name} » : reprise de la propriété…");
+                        Ownership.TakeOwnershipRecursive(entry, log);
+                        Retry(move);
+                    }
                     moved++;
                     string shortTarget = target.Substring(longPrefix.Length);
                     if (isDir)
