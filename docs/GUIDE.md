@@ -35,8 +35,9 @@ pour nettoyer l'ordinateur.
 6. Cliquez sur **Réparer la sélection**.
 
 Vos fichiers réapparaissent. **Ils ne sont jamais supprimés** : le virus les avait seulement cachés.
-Si le virus les avait rangés dans un dossier sans nom, vous les trouverez dans
-**« Fichiers récupérés »**.
+Si le virus les avait rangés dans un dossier caché sans nom, ils sont remis à leur place et ce
+dossier est supprimé. Si un fichier du même nom existait déjà, il est conservé sous le nom
+« nom (2) » : rien n'est écrasé.
 
 ## 4. Vacciner la clé (conseillé)
 

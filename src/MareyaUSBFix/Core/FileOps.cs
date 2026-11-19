@@ -83,13 +83,18 @@ namespace MareyaUSBFix.Core
             }
         }
 
-        /// <summary>Trouve un nom libre dans un dossier : « Fichiers récupérés », « Fichiers récupérés (2) »…</summary>
-        public static string FreeName(string parent, string baseName)
+        /// <summary>
+        /// Trouve un nom libre dans un dossier : « photo.jpg », sinon « photo (2).jpg », « photo (3).jpg »…
+        /// Pour un dossier, l'extension n'est pas séparée.
+        /// </summary>
+        public static string FreeName(string parent, string name, bool isDirectory = true)
         {
-            string candidate = Path.Combine(parent, baseName);
+            string stem = isDirectory ? name : Path.GetFileNameWithoutExtension(name);
+            string ext = isDirectory ? "" : Path.GetExtension(name);
+            string candidate = Path.Combine(parent, name);
             int i = 2;
             while (Directory.Exists(candidate) || File.Exists(candidate))
-                candidate = Path.Combine(parent, $"{baseName} ({i++})");
+                candidate = Path.Combine(parent, $"{stem} ({i++}){ext}");
             return candidate;
         }
     }

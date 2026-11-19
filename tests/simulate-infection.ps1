@@ -75,6 +75,10 @@ $blank = [string][char]0x00A0
 New-Item -ItemType Directory -Path "$root$blank" | Out-Null
 Set-Content -LiteralPath "$root$blank\secret.txt" "fichier déplacé par le virus"
 attrib +h +s "$root$blank\secret.txt"
+Set-Content -LiteralPath "$root$blank\notes.txt" "autre version des notes"   # même nom qu'un fichier de la racine
+New-Item -ItemType Directory -Path "$root$blank\Vacances" | Out-Null
+Set-Content -LiteralPath "$root$blank\Vacances\plage.jpg" "image"
+attrib +h +s "$root$blank\Vacances"
 attrib +h +s "$root$blank"
 
 # --- Infection simulée de l'ordinateur ---
@@ -126,14 +130,30 @@ Check (-not (Test-Path "$root\Photos.lnk")) "raccourci piégé Photos.lnk suppri
 Check (-not (Test-Path "$root\notes.txt.lnk")) "raccourci piégé notes.txt.lnk supprimé"
 Check (-not (Test-Path "$root\x8f2k.vbe")) "script caché supprimé"
 Check (-not (Test-Path "$root\WindowsServices")) "dossier du virus supprimé"
-Check (Test-Path -LiteralPath "$root\Fichiers récupérés\secret.txt") "dossier sans nom renommé « Fichiers récupérés »"
-Check (-not (IsHidden "$root\Fichiers récupérés\secret.txt")) "fichiers du dossier sans nom réaffichés"
+Check (Test-Path -LiteralPath "$root\secret.txt") "fichiers du dossier sans nom remis à la racine"
+Check (-not (IsHidden "$root\secret.txt")) "fichiers remis à la racine visibles"
+Check ((Test-Path "$root\Vacances\plage.jpg") -and -not (IsHidden "$root\Vacances")) "sous-dossier remis à la racine et visible"
+Check ((Get-Content "$root\notes.txt") -eq "mes notes") "fichier existant non écrasé"
+Check ((Get-Content "$root\notes (2).txt") -eq "autre version des notes") "doublon remis sous le nom « notes (2).txt »"
+Check (-not (Test-Path -LiteralPath "$root$blank")) "dossier sans nom du virus supprimé"
+Check (-not (Test-Path -LiteralPath "$root\Fichiers récupérés")) "pas de dossier « Fichiers récupérés » laissé"
 $walked = (Select-String -Path $scanLog -Pattern '(\d+) éléments parcourus').Matches[0].Groups[1].Value -as [int]
 Check ($walked -lt 40) "la clé n'est parcourue qu'une fois ($walked éléments)"
 Check (Test-Path "$root\Projet\app.js") "script légitime visible conservé"
 Check (Test-Path "$root\Lien bloc-notes.lnk") "raccourci légitime conservé"
 Check (IsHidden "$root\Photos\desktop.ini") "desktop.ini laissé caché"
 Check ((Test-Path "$root\autorun.inf" -PathType Container)) "clé vaccinée (dossier autorun.inf protégé)"
+
+Write-Host "== Dossier « Fichiers récupérés » laissé par une ancienne version"
+New-Item -ItemType Directory "$root\Fichiers récupérés" | Out-Null
+Set-Content "$root\Fichiers récupérés\ancien.txt" "ancien"
+New-Item -ItemType Directory "$root\`$RECYCLE.BIN" | Out-Null   # Corbeille rendue visible
+$oldLog = Join-Path $backing "..\old.log"
+$p = Start-Process $Exe -ArgumentList "/scan", $root, "/repair", "/log", "`"$oldLog`"" -Wait -PassThru
+Get-Content $oldLog | ForEach-Object { Write-Host "    $_" }
+Check ($p.ExitCode -eq 0) "réparation réussie (code $($p.ExitCode))"
+Check ((Test-Path "$root\ancien.txt") -and -not (Test-Path "$root\Fichiers récupérés")) "fichiers de « Fichiers récupérés » remis à la racine, dossier supprimé"
+Check (IsHidden "$root\`$RECYCLE.BIN") "Corbeille de Windows recachée"
 
 Write-Host "== Disque propre avec des fichiers que Windows garde cachés"
 Set-Content "$root\pagefile.sys" "x"

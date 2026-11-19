@@ -132,24 +132,26 @@ namespace MareyaUSBFix.Core
                 }
             }
 
-            // 5. Dossiers sans nom (espaces invisibles) où le virus range les fichiers de l'utilisateur
+            // 5. Dossiers sans nom (espaces invisibles) où le virus range les fichiers de l'utilisateur :
+            //    on remet leur contenu à la racine, puis on supprime le dossier vide.
             foreach (var dir in all.OfType<DirectoryInfo>().Where(d => atRoot(d) && Signatures.IsBlankName(d.Name)))
             {
                 if (flagged.Contains(dir.FullName)) continue;
                 string path = dir.FullName;
                 Add(findings, flagged, Severity.Malicious, "Fichiers cachés",
-                    $"Dossier sans nom contenant vos fichiers : il sera renommé « {RecoveredFolderName} »", path,
-                    () =>
-                    {
-                        string target = FileOps.FreeName(_root, RecoveredFolderName);
-                        // préfixe \\?\ : sinon Windows supprime les espaces finaux et ne trouve pas le dossier
-                        Directory.Move(@"\\?\" + path, @"\\?\" + target);
-                        FileOps.Unhide(new DirectoryInfo(target));
-                        foreach (var inside in FileOps.Walk(target, MaxDepth).Where(e => ShouldUnhide(e, anyDepth: true)))
-                        {
-                            try { FileOps.Unhide(inside); } catch { /* réessayé par le réaffichage général */ }
-                        }
-                    }, order: 1);
+                    "Dossier sans nom créé par le virus : vos fichiers seront remis à leur place et le dossier supprimé", path,
+                    () => MoveBackToRoot(@"\\?\" + path, log), order: 1);
+            }
+
+            //    Même chose pour un dossier « Fichiers récupérés » laissé par une version précédente du logiciel.
+            foreach (var dir in all.OfType<DirectoryInfo>().Where(d => atRoot(d)
+                         && (d.Name.Equals(RecoveredFolderName, StringComparison.OrdinalIgnoreCase)
+                             || d.Name.StartsWith(RecoveredFolderName + " (", StringComparison.OrdinalIgnoreCase))))
+            {
+                string path = dir.FullName;
+                Add(findings, flagged, Severity.Malicious, "Fichiers cachés",
+                    $"Vos fichiers du dossier « {dir.Name} » seront remis à leur place et le dossier supprimé", path,
+                    () => MoveBackToRoot(path, log), order: 1);
             }
 
             // 6. Tout ce qui reste caché (vos fichiers) sera rendu visible
@@ -198,8 +200,67 @@ namespace MareyaUSBFix.Core
             return ok;
         }
 
+        /// <summary>
+        /// Remet à la racine tout ce que contient le dossier (fichiers de l'utilisateur), en renommant
+        /// « nom (2).ext » en cas de doublon, puis supprime le dossier devenu vide.
+        /// </summary>
+        private void MoveBackToRoot(string folder, Action<string> log)
+        {
+            const string longPrefix = @"\\?\";
+            string rootLong = longPrefix + _root;
+            int moved = 0;
+            foreach (string entry in Directory.GetFileSystemEntries(folder))
+            {
+                string name = Path.GetFileName(entry);
+                bool isDir = Directory.Exists(entry);
+                string target = FileOps.FreeName(rootLong, name, isDir);
+                if (isDir)
+                {
+                    new DirectoryInfo(entry).Attributes &= ~FileOps.HiddenOrSystem;
+                    Directory.Move(entry, target);
+                }
+                else
+                {
+                    File.SetAttributes(entry, File.GetAttributes(entry) & ~FileOps.HiddenOrSystem);
+                    File.Move(entry, target);
+                }
+                moved++;
+                string shortTarget = target.Substring(longPrefix.Length);
+                if (isDir)
+                {
+                    foreach (var inside in FileOps.Walk(shortTarget, MaxDepth).Where(e => ShouldUnhide(e, anyDepth: true)))
+                    {
+                        try { FileOps.Unhide(inside); } catch { /* réessayé par le réaffichage général */ }
+                    }
+                }
+                if (!string.Equals(Path.GetFileName(shortTarget), name, StringComparison.OrdinalIgnoreCase))
+                    log($"« {name} » existait déjà à la racine : remis sous le nom « {Path.GetFileName(shortTarget)} ».");
+            }
+            log($"{moved} élément(s) remis à leur place.");
+
+            new DirectoryInfo(folder).Attributes = FileAttributes.Directory;
+            Directory.Delete(folder, recursive: false);
+            RestoreWindowsFolders();
+        }
+
+        /// <summary>Recache la Corbeille et le dossier système de Windows s'ils ont été rendus visibles.</summary>
+        private void RestoreWindowsFolders()
+        {
+            foreach (string name in new[] { "$RECYCLE.BIN", "System Volume Information" })
+            {
+                try
+                {
+                    var dir = new DirectoryInfo(Path.Combine(_root, name));
+                    if (dir.Exists && (dir.Attributes & FileOps.HiddenOrSystem) != FileOps.HiddenOrSystem)
+                        dir.Attributes |= FileOps.HiddenOrSystem;
+                }
+                catch { /* sans gravité */ }
+            }
+        }
+
         private void UnhideAll(Action<string> log)
         {
+            RestoreWindowsFolders();
             int count = 0, failed = 0;
             foreach (var entry in FileOps.Walk(_root, MaxDepth, IsVaccine))
             {
