@@ -145,6 +145,10 @@ namespace MareyaUSBFix.Core
                         // préfixe \\?\ : sinon Windows supprime les espaces finaux et ne trouve pas le dossier
                         Directory.Move(@"\\?\" + path, @"\\?\" + target);
                         FileOps.Unhide(new DirectoryInfo(target));
+                        foreach (var inside in FileOps.Walk(target, MaxDepth).Where(ShouldUnhide))
+                        {
+                            try { FileOps.Unhide(inside); } catch { /* réessayé par le réaffichage général */ }
+                        }
                     }, order: 1);
             }
 
@@ -228,6 +232,7 @@ namespace MareyaUSBFix.Core
         /// <summary>Fichiers que Windows garde normalement cachés : on ne les réaffiche pas.</summary>
         private bool ShouldUnhide(FileSystemInfo e) =>
             !Signatures.ProtectedFolders.Contains(e.Name)
+            && !Signatures.IsBlankName(e.Name) // ses attributs s'appliqueraient au dossier parent
             && !Signatures.NormallyHiddenFiles.Contains(e.Name)
             && !(e is DirectoryInfo d && IsVaccine(d));
 

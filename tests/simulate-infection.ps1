@@ -74,6 +74,7 @@ attrib +h +s "$root\WindowsServices"
 $blank = [string][char]0x00A0
 New-Item -ItemType Directory -Path "$root$blank" | Out-Null
 Set-Content -LiteralPath "$root$blank\secret.txt" "fichier déplacé par le virus"
+attrib +h +s "$root$blank\secret.txt"
 attrib +h +s "$root$blank"
 
 # --- Infection simulée de l'ordinateur ---
@@ -120,6 +121,9 @@ Check (-not (Test-Path "$root\notes.txt.lnk")) "raccourci piégé notes.txt.lnk 
 Check (-not (Test-Path "$root\x8f2k.vbe")) "script caché supprimé"
 Check (-not (Test-Path "$root\WindowsServices")) "dossier du virus supprimé"
 Check (Test-Path -LiteralPath "$root\Fichiers récupérés\secret.txt") "dossier sans nom renommé « Fichiers récupérés »"
+Check (-not (IsHidden "$root\Fichiers récupérés\secret.txt")) "fichiers du dossier sans nom réaffichés"
+$walked = (Select-String -Path $scanLog -Pattern '(\d+) éléments parcourus').Matches[0].Groups[1].Value -as [int]
+Check ($walked -lt 40) "la clé n'est parcourue qu'une fois ($walked éléments)"
 Check (Test-Path "$root\Projet\app.js") "script légitime visible conservé"
 Check (Test-Path "$root\Lien bloc-notes.lnk") "raccourci légitime conservé"
 Check (IsHidden "$root\Photos\desktop.ini") "desktop.ini laissé caché"

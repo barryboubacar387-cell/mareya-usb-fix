@@ -73,6 +73,9 @@ namespace MareyaUSBFix.Core
                         catch { isLink = true; }
                         if (isLink) continue;
                         if (Signatures.ProtectedFolders.Contains(sub.Name)) continue;
+                        // un nom fait d'espaces est normalisé par Windows en « dossier parent » :
+                        // y entrer reparcourrait le disque entier (il est traité à part, par renommage)
+                        if (Signatures.IsBlankName(sub.Name)) continue;
                         if (skipDir != null && skipDir(sub)) continue;
                         stack.Push((sub, depth + 1));
                     }
