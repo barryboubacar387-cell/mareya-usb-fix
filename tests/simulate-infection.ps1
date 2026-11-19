@@ -147,12 +147,15 @@ Check ((Test-Path "$root\autorun.inf" -PathType Container)) "clé vaccinée (dos
 Write-Host "== Dossier « Fichiers récupérés » laissé par une ancienne version"
 New-Item -ItemType Directory "$root\Fichiers récupérés" | Out-Null
 Set-Content "$root\Fichiers récupérés\ancien.txt" "ancien"
+New-Item -ItemType Directory "$root\Fichiers récupérés\Musique\Album" | Out-Null   # sous-dossiers (cas réel)
+Set-Content "$root\Fichiers récupérés\Musique\Album\titre.mp3" "son"
 New-Item -ItemType Directory "$root\`$RECYCLE.BIN" | Out-Null   # Corbeille rendue visible
 $oldLog = Join-Path $backing "..\old.log"
 $p = Start-Process $Exe -ArgumentList "/scan", $root, "/repair", "/log", "`"$oldLog`"" -Wait -PassThru
 Get-Content $oldLog | ForEach-Object { Write-Host "    $_" }
 Check ($p.ExitCode -eq 0) "réparation réussie (code $($p.ExitCode))"
 Check ((Test-Path "$root\ancien.txt") -and -not (Test-Path "$root\Fichiers récupérés")) "fichiers de « Fichiers récupérés » remis à la racine, dossier supprimé"
+Check (Test-Path "$root\Musique\Album\titre.mp3") "sous-dossiers de « Fichiers récupérés » remis à la racine"
 Check (IsHidden "$root\`$RECYCLE.BIN") "Corbeille de Windows recachée"
 
 Write-Host "== Fichier ouvert pendant la réparation"
