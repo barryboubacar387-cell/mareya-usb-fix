@@ -38,10 +38,8 @@ namespace MareyaUSBFix.Core
                 log?.Invoke($"Suppression normale refusée ({first.Message}) : reprise de la propriété de {path}…");
             }
 
-            const string admins = "*S-1-5-32-544"; // groupe Administrateurs, quelle que soit la langue de Windows
-            SystemCleaner.RunQuiet("icacls.exe", $"\"{path}\" /setowner {admins} /T /C /Q");
-            SystemCleaner.RunQuiet("icacls.exe", $"\"{path}\" /grant {admins}:F /T /C /Q");
-            SystemCleaner.RunQuiet("attrib.exe", $"-h -s -r \"{path}\\*\" /s /d");
+            // reprise de propriété élément par élément, avec les privilèges d'administrateur (comme takeown /r)
+            Ownership.TakeOwnershipRecursive(path, log);
             try
             {
                 DeleteDirectory(path);

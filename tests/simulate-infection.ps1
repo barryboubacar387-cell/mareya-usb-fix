@@ -189,13 +189,20 @@ Check (-not (Select-String -Path $cleanLog -Pattern 'Fichiers cachés' -Quiet)) 
 
 Write-Host "== Dossiers found.000 de Windows (protégés, propriété du système)"
 foreach ($n in "found.000", "found.000 (2)") {
-    New-Item -ItemType Directory "$root\$n" | Out-Null
+    New-Item -ItemType Directory "$root\$n\dir0000.chk\AadRecoveryPasswordDelete" | Out-Null
     Set-Content "$root\$n\FILE0000.CHK" "fragment"
+    Set-Content "$root\$n\dir0000.chk\AadRecoveryPasswordDelete\data.bin" "x"
     attrib +h +s "$root\$n"
-    # comme sur un vrai disque : appartient à SYSTEM, les Administrateurs n'ont aucun droit
-    icacls "$root\$n" /setowner *S-1-5-18 /T /C /Q | Out-Null
-    icacls "$root\$n" /inheritance:r /grant:r *S-1-5-18:F /T /C /Q | Out-Null
+    # comme sur un vrai disque : chaque niveau appartient à SYSTEM et les Administrateurs n'ont aucun droit
+    # (cas réel : dossier de « System Volume Information » récupéré par chkdsk)
+    foreach ($sub in "$root\$n\dir0000.chk\AadRecoveryPasswordDelete\data.bin", "$root\$n\dir0000.chk\AadRecoveryPasswordDelete",
+                     "$root\$n\dir0000.chk", "$root\$n\FILE0000.CHK", "$root\$n") {
+        icacls $sub /setowner *S-1-5-18 /C /Q | Out-Null
+        icacls $sub /inheritance:r /grant:r *S-1-5-18:F /C /Q | Out-Null
+    }
 }
+cmd /c rd /s /q "\\?\$($root)found.000" 2>$null
+Check (Test-Path "$root\found.000") "found.000 résiste bien à rd /s /q (comme chez l'utilisateur)"
 $foundLog = Join-Path $backing "..\found.log"
 $p = Start-Process $Exe -ArgumentList "/scan", $root, "/log", "`"$foundLog`"" -Wait -PassThru
 Check ($p.ExitCode -eq 0) "found.000 n'est pas compté comme virus (code $($p.ExitCode))"
