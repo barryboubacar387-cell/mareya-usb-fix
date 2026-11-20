@@ -128,8 +128,10 @@ namespace MareyaUSBFix.Core
                         string medium = media == 4 ? "SSD" : media == 3 ? "disque dur" : null;
                         switch (bus)
                         {
-                            case 12: return "Carte SD";
-                            case 13: return "Carte mémoire (MMC)";
+                            // Bus SD/MMC déclaré « fixe » par Windows : puce soudée sur la carte mère (eMMC),
+                            // pas une carte qu'on retire.
+                            case 12: return removableByWindows ? "Carte SD" : "Mémoire intégrée (eMMC)";
+                            case 13: return removableByWindows ? "Carte mémoire (MMC)" : "Mémoire intégrée (eMMC)";
                             case 7: return removableByWindows ? "Clé USB" : "Disque externe USB" + (medium != null ? $" ({medium})" : "");
                             case 17: return "SSD interne (NVMe)";
                             case 11: return medium == "SSD" ? "SSD interne (SATA)" : "Disque dur interne (SATA)";
