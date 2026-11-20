@@ -124,13 +124,13 @@ namespace MareyaUSBFix.UI
             header.Controls.Add(_pageTitle);
             header.Controls.Add(_pageSubtitle);
 
-            _refresh.Dock = DockStyle.Right;
+            // « Actualiser » en haut à droite de l'en-tête : toute la largeur reste aux tuiles
+            _refresh.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             _refresh.Click += (s, e) => LoadDrives();
-            var refreshHost = new Panel { Dock = DockStyle.Right, Width = _refresh.Width + 8, BackColor = Theme.Background, Padding = new Padding(8, 24, 0, 24) };
-            refreshHost.Controls.Add(_refresh);
+            header.Controls.Add(_refresh);
+            header.Resize += (s, e) => _refresh.Location = new Point(header.Width - _refresh.Width, 8);
             _driveStrip.Controls.Add(_tiles);
             _driveStrip.Resize += (s, e) => LayoutTiles();
-            _driveStrip.Controls.Add(refreshHost);
 
             content.Controls.Add(_host);
             content.Controls.Add(_driveStrip);
@@ -222,8 +222,8 @@ namespace MareyaUSBFix.UI
         {
             var tiles = _tiles.Controls.OfType<DriveTile>().ToList();
             if (tiles.Count == 0) { _driveStrip.Height = 108; return; }
-            int available = _driveStrip.ClientSize.Width - _refresh.Width - 24;
-            int width = Math.Max(200, Math.Min(300, (available - 12 * tiles.Count) / tiles.Count));
+            int available = _driveStrip.ClientSize.Width - 4;
+            int width = Math.Max(176, Math.Min(300, (available - 12 * tiles.Count) / tiles.Count));
             bool overflow = (width + 12) * tiles.Count > available;
             foreach (var t in tiles) t.Width = width;
             _driveStrip.Height = overflow ? 126 : 108;
