@@ -35,6 +35,7 @@ namespace MareyaUSBFix.UI
         private readonly ProgressBar _progress = new ProgressBar { Style = ProgressBarStyle.Marquee, Visible = false, Dock = DockStyle.Fill, MarqueeAnimationSpeed = 30 };
 
         private DiagnosticPanel _diagnostic;
+        private string _shownRoot;
         private List<Finding> _findings = new List<Finding>();
         private string _scannedRoot;
         private DeviceWatcher _watcher;
@@ -150,7 +151,20 @@ namespace MareyaUSBFix.UI
         private void WireEvents()
         {
             _refresh.Click += (s, e) => LoadDrives();
-            _drives.SelectedIndexChanged += (s, e) => { ClearFindings(); UpdateButtons(); };
+            _drives.SelectedIndexChanged += (s, e) =>
+            {
+                // nouveau disque choisi : on repart d'un écran vierge (journal compris)
+                string root = SelectedRoot;
+                if (!string.Equals(root, _shownRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    _shownRoot = root;
+                    ClearFindings();
+                    _log.Clear();
+                    _status.Text = root == null ? "" : $"Disque {root.TrimEnd('\\')} sélectionné. Cliquez sur « Analyser ».";
+                    _status.ForeColor = Theme.Muted;
+                }
+                UpdateButtons();
+            };
             _scan.Click += async (s, e) => await ScanAsync();
             _repair.Click += async (s, e) => await RepairAsync();
             _vaccinate.Click += (s, e) => VaccinateSelected();

@@ -24,6 +24,7 @@ namespace MareyaUSBFix.UI
         private readonly ListView _details = new ListView { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, Font = Theme.Body, BorderStyle = BorderStyle.FixedSingle, HeaderStyle = ColumnHeaderStyle.Nonclickable };
         private readonly TextBox _log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = Theme.Mono, BackColor = Color.White, BorderStyle = BorderStyle.FixedSingle };
         private CancellationTokenSource _cts;
+        private string _shownRoot;
         private bool _busy;
 
         public DiagnosticPanel()
@@ -72,7 +73,21 @@ namespace MareyaUSBFix.UI
             _speed.Click += async (s, e) => await CapacityAsync(CapacityTestMode.Speed);
             _full.Click += async (s, e) => await CapacityAsync(CapacityTestMode.Full);
             _stop.Click += (s, e) => _cts?.Cancel();
-            _drives.SelectedIndexChanged += (s, e) => UpdateButtons();
+            _drives.SelectedIndexChanged += (s, e) =>
+            {
+                // nouveau disque choisi : résultats, verdict et journal de l'ancien disque effacés
+                string root = Selected?.Root;
+                if (!string.Equals(root, _shownRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    _shownRoot = root;
+                    _details.Items.Clear();
+                    _log.Clear();
+                    _progress.Value = 0;
+                    ShowVerdict(root == null ? "" : $"Disque {root.TrimEnd('\\')} sélectionné : lancez un diagnostic.", Theme.Muted);
+                    _status.Text = "« Vérifier la santé » est instantané et ne modifie rien. Le test d'authenticité détecte les fausses clés.";
+                }
+                UpdateButtons();
+            };
 
             LoadDrives();
             _verdict.Text = "Choisissez un disque puis lancez un diagnostic.";
