@@ -283,7 +283,7 @@ Check (Select-String -Path $healthLog -Pattern '^Verdict : ' -Quiet) "un verdict
 Check (Select-String -Path $healthLog -Pattern 'Modèle' -Quiet) "l'identité du disque est lue"
 
 Write-Host "== Diagnostic : test d'authenticité sur un vrai disque virtuel (VHD de 300 Mo)"
-$vhd = Join-Path $backing "..\capacite.vhdx"
+$vhd = [IO.Path]::GetFullPath((Join-Path $backing "..\capacite.vhdx"))   # diskpart exige un chemin complet
 Remove-Item $vhd -Force -ErrorAction SilentlyContinue
 $dp = Join-Path $backing "..\diskpart.txt"
 @"
@@ -293,7 +293,8 @@ create partition primary
 format fs=ntfs quick label=TESTCAP
 assign letter=V
 "@ | Set-Content -Encoding ascii $dp
-diskpart /s $dp | Out-Null
+diskpart /s $dp | ForEach-Object { Write-Host "    diskpart> $_" }
+for ($i = 0; $i -lt 20 -and -not (Test-Path "V:\"); $i++) { Start-Sleep -Milliseconds 500 }
 Check (Test-Path "V:\") "(préparation) disque virtuel V: monté"
 Set-Content "V:\mon-document.txt" "document personnel"
 $hash = (Get-FileHash "V:\mon-document.txt").Hash
