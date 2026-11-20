@@ -429,3 +429,52 @@ namespace MareyaUSBFix.UI
         protected override void Dispose(bool disposing) { if (disposing) _timer.Dispose(); base.Dispose(disposing); }
     }
 }
+
+namespace MareyaUSBFix.UI
+{
+    /// <summary>Jauge circulaire de santé : anneau coloré proportionnel au pourcentage, valeur au centre.</summary>
+    public class HealthGauge : Control
+    {
+        private int? _percent;
+        private string _caption = "";
+
+        public HealthGauge()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+            Size = new Size(156, 156);
+        }
+
+        public static Color ColorFor(int? percent) =>
+            !percent.HasValue ? Theme.Muted : percent >= 70 ? Theme.Success : percent >= 50 ? Theme.Warning : Theme.Danger;
+
+        public void Set(int? percent, string caption)
+        {
+            _percent = percent;
+            _caption = caption ?? "";
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var bg = new SolidBrush(Parent?.BackColor ?? Color.White)) g.FillRectangle(bg, ClientRectangle);
+
+            const float thickness = 12;
+            float size = Math.Min(Width, Height) - thickness - 2;
+            var ring = new RectangleF((Width - size) / 2f, (Height - size) / 2f, size, size);
+            using (var track = new Pen(Color.FromArgb(0xE6, 0xEA, 0xF0), thickness))
+                g.DrawEllipse(track, ring);
+            if (_percent > 0)
+                using (var arc = new Pen(ColorFor(_percent), thickness) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round })
+                    g.DrawArc(arc, ring, -90, 360f * _percent.Value / 100f);
+
+            string value = _percent.HasValue ? $"{_percent} %" : "?";
+            using (var f = new Font(Theme.Title.FontFamily, 22f, FontStyle.Bold))
+                TextRenderer.DrawText(g, value, f, new Rectangle(0, (int)(Height / 2f - 26), Width, 36), ColorFor(_percent),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, _caption, Theme.Small, new Rectangle(0, (int)(Height / 2f + 10), Width, 20), Theme.Muted,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+    }
+}

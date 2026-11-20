@@ -17,6 +17,19 @@ namespace MareyaUSBFix
         [STAThread]
         private static int Main(string[] args)
         {
+            // MareyaUSBFix.exe /selftest : vérifie les calculs internes (code 0 = tout est juste)
+            if (args.Any(a => a.Equals("/selftest", StringComparison.OrdinalIgnoreCase)))
+            {
+                AttachConsole(-1);
+                var failures = HealthScore.SelfTest();
+                foreach (var f in failures) Console.WriteLine("ÉCHEC " + f);
+                Console.WriteLine(failures.Count == 0 ? "Calcul de la santé : tous les cas sont justes." : $"{failures.Count} cas faux.");
+                int logIdx = Array.FindIndex(args, a => a.Equals("/log", StringComparison.OrdinalIgnoreCase));
+                if (logIdx >= 0 && logIdx + 1 < args.Length)
+                    File.WriteAllLines(args[logIdx + 1], failures.Count == 0 ? new[] { "OK" } : failures.ToArray());
+                return failures.Count;
+            }
+
             // MareyaUSBFix.exe /capture dossier : captures d'écran de l'interface (données de démonstration)
             int cap = Array.FindIndex(args, a => a.Equals("/capture", StringComparison.OrdinalIgnoreCase));
             if (cap >= 0 && cap + 1 < args.Length)
@@ -70,6 +83,8 @@ namespace MareyaUSBFix
                 {
                     var h = DiskHealth.Check(healthRoot, Log);
                     Log("Verdict : " + h.VerdictText);
+                    Log("Santé : " + (h.Percent.HasValue ? $"{h.Percent} % ({HealthScore.Label(h.Percent.Value)})" : "inconnue"));
+                    foreach (var b in h.PercentBreakdown) Log("  " + b);
                     foreach (var r in h.Reasons) Log("  - " + r);
                     foreach (var d in h.Details) Log($"  {d.Key} : {d.Value}");
                 }

@@ -281,6 +281,11 @@ Get-Content $healthLog | ForEach-Object { Write-Host "    $_" }
 Check ($p.ExitCode -eq 0) "diagnostic de santé sans erreur (code $($p.ExitCode))"
 Check (Select-String -Path $healthLog -Pattern '^Verdict : ' -Quiet) "un verdict de santé est donné"
 Check (Select-String -Path $healthLog -Pattern 'Modèle' -Quiet) "l'identité du disque est lue"
+Check (Select-String -Path $healthLog -Pattern '^Santé : ' -Quiet) "le pourcentage de santé (ou « inconnue ») est donné"
+$selfLog = Join-Path $backing "..\selftest.log"
+$p = Start-Process $Exe -ArgumentList "/selftest", "/log", "`"$selfLog`"" -Wait -PassThru
+Get-Content $selfLog | ForEach-Object { Write-Host "    $_" }
+Check ($p.ExitCode -eq 0) "calcul du pourcentage de santé juste sur 10 cas connus (code $($p.ExitCode))"
 
 Write-Host "== Diagnostic : test d'authenticité sur un vrai disque virtuel (VHD de 300 Mo)"
 $vhd = [IO.Path]::GetFullPath((Join-Path $backing "..\capacite.vhdx"))   # diskpart exige un chemin complet

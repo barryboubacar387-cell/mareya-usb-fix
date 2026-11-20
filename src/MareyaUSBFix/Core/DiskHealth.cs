@@ -21,6 +21,10 @@ namespace MareyaUSBFix.Core
         public List<string> Reasons { get; } = new List<string>();
         public List<KeyValuePair<string, string>> Details { get; } = new List<KeyValuePair<string, string>>();
         public bool HasSmartData { get; set; }
+        public HealthInputs Inputs { get; } = new HealthInputs();
+        /// <summary>Santé estimée en % (null = le disque ne transmet pas assez d'informations).</summary>
+        public int? Percent { get; set; }
+        public List<string> PercentBreakdown { get; set; } = new List<string>();
 
         public string VerdictText
         {
@@ -87,6 +91,13 @@ namespace MareyaUSBFix.Core
             report.Add("Connexion", report.Bus ?? "?");
             if (!string.IsNullOrEmpty(report.MediaType)) report.Add("Type", report.MediaType);
 
+            // Pourcentage de santé, cohérent avec le verdict
+            var (percent, breakdown) = HealthScore.Compute(report.Inputs);
+            report.Percent = report.HasSmartData ? percent : null;
+            report.PercentBreakdown = breakdown;
+            if (report.Percent < 25 && report.Verdict != HealthVerdict.Critical) report.Verdict = HealthVerdict.Critical;
+            else if (report.Percent < 50 && (report.Verdict == HealthVerdict.Good || report.Verdict == HealthVerdict.Unknown)) report.Verdict = HealthVerdict.Warning;
+
             if (!report.HasSmartData && report.Verdict == HealthVerdict.Unknown)
                 report.Reasons.Add("Aucune donnée de santé transmise (fréquent pour les clés USB et boîtiers externes). " +
                                    "Utilisez le test d'authenticité pour vérifier la mémoire elle-même.");
@@ -125,6 +136,7 @@ namespace MareyaUSBFix.Core
                     r.MediaType = MediaTypeName(Convert.ToInt32(pd["MediaType"] ?? 0));
                     r.Bus = BusTypeName(Convert.ToInt32(pd["BusType"] ?? 0)) ?? r.Bus;
                     int health = Convert.ToInt32(pd["HealthStatus"] ?? 5);
+                    if (health <= 2) r.Inputs.WindowsHealth = health;
                     if (health == 0) { r.HasSmartData = true; r.Add("État selon Windows", "Sain"); }
                     else if (health == 1) { r.HasSmartData = true; r.Raise(HealthVerdict.Warning, "Windows signale un avertissement sur ce disque."); }
                     else if (health == 2) { r.HasSmartData = true; r.Raise(HealthVerdict.Critical, "Windows signale ce disque comme défaillant."); }
@@ -136,6 +148,10 @@ namespace MareyaUSBFix.Core
                 {
                     long? temp = Num(c["Temperature"]), tempMax = Num(c["TemperatureMax"]), wear = Num(c["Wear"]);
                     long? hours = Num(c["PowerOnHours"]), readErr = Num(c["ReadErrorsUncorrected"]), writeErr = Num(c["WriteErrorsUncorrected"]);
+                    if (temp > 0) r.Inputs.Temperature = temp;
+                    if (readErr.HasValue) r.Inputs.ReadErrors = readErr;
+                    if (writeErr.HasValue) r.Inputs.WriteErrors = writeErr;
+                    if (wear.HasValue && (wear > 0 || r.MediaType == "SSD")) r.Inputs.Wear = wear;
                     if (temp > 0) { r.HasSmartData = true; r.Add("Température", $"{temp} °C" + (tempMax > 0 ? $" (max. {tempMax} °C)" : "")); CheckTemperature(r, temp.Value); }
                     if (hours > 0) { r.HasSmartData = true; r.Add("Heures d'utilisation", FormatHours(hours.Value)); }
                     if (wear.HasValue && (wear > 0 || r.MediaType == "SSD"))
@@ -165,7 +181,10 @@ namespace MareyaUSBFix.Core
                     if (!Matches(o, pnp)) continue;
                     r.HasSmartData = true;
                     if (o["PredictFailure"] is bool fail && fail)
+                    {
+                        r.Inputs.PredictFailure = true;
                         r.Raise(HealthVerdict.Critical, "Le disque lui-même prédit une panne prochaine (SMART).");
+                    }
                 }
             }
 
@@ -175,13 +194,16 @@ namespace MareyaUSBFix.Core
                 {
                     if (!Matches(o, pnp) || !(o["VendorSpecific"] is byte[] data)) continue;
                     r.HasSmartData = true;
-                    foreach (var (id, raw) in ParseAttributes(data)) Interpret(id, raw, r);
+                    foreach (var (id, current, raw) in ParseAttributes(data)) Interpret(id, current, raw, r);
                 }
             }
         }
 
-        /// <summary>Attributs SMART : à partir de l'octet 2, 30 entrées de 12 octets (id, drapeaux, valeurs, brut sur 6 octets).</summary>
-        public static IEnumerable<(int id, long raw)> ParseAttributes(byte[] data)
+        /// <summary>
+        /// Attributs SMART : à partir de l'octet 2, 30 entrées de 12 octets
+        /// (id, drapeaux sur 2 octets, valeur normalisée actuelle, pire valeur, brut sur 6 octets).
+        /// </summary>
+        public static IEnumerable<(int id, int current, long raw)> ParseAttributes(byte[] data)
         {
             for (int i = 2; i + 12 <= data.Length && i < 2 + 30 * 12; i += 12)
             {
@@ -189,28 +211,39 @@ namespace MareyaUSBFix.Core
                 if (id == 0) continue;
                 long raw = 0;
                 for (int b = 0; b < 6; b++) raw |= (long)data[i + 5 + b] << (8 * b);
-                yield return (id, raw);
+                yield return (id, data[i + 3], raw);
             }
         }
 
-        private static void Interpret(int id, long raw, DiskHealthReport r)
+        private static void Interpret(int id, int current, long raw, DiskHealthReport r)
         {
             switch (id)
             {
+                // Durée de vie restante des SSD (valeur normalisée = % restant), selon les fabricants
+                case 231: // SSD Life Left
+                case 233: // Media Wearout Indicator (Intel…)
+                case 177: // Wear Leveling Count (Samsung)
+                case 169: // Remaining Life
+                    if (current > 0 && current <= 100 && !r.Inputs.LifeLeft.HasValue) r.Inputs.LifeLeft = current;
+                    break;
                 case 5:
+                    r.Inputs.Reallocated = raw;
                     r.Add("Secteurs réalloués", raw.ToString());
                     if (raw > 50) r.Raise(HealthVerdict.Critical, $"{raw} secteurs défectueux remplacés : la surface du disque se dégrade.");
                     else if (raw > 0) r.Raise(HealthVerdict.Warning, $"{raw} secteur(s) défectueux remplacé(s).");
                     break;
                 case 197:
+                    r.Inputs.Pending = raw;
                     r.Add("Secteurs instables", raw.ToString());
                     if (raw > 0) r.Raise(HealthVerdict.Critical, $"{raw} secteur(s) instable(s) en attente : risque de perte de données.");
                     break;
                 case 198:
+                    r.Inputs.Uncorrectable = raw;
                     r.Add("Secteurs illisibles", raw.ToString());
                     if (raw > 0) r.Raise(HealthVerdict.Critical, $"{raw} secteur(s) illisible(s).");
                     break;
                 case 187:
+                    r.Inputs.ReportedUncorrect = raw;
                     if (raw > 0) r.Raise(HealthVerdict.Warning, $"{raw} erreur(s) non corrigible(s) signalée(s).");
                     break;
                 case 9:
@@ -222,7 +255,7 @@ namespace MareyaUSBFix.Core
                     if (!r.Details.Any(d => d.Key == "Température"))
                     {
                         long t = raw & 0xFF;
-                        if (t > 0 && t < 120) { r.Add("Température", $"{t} °C"); CheckTemperature(r, t); }
+                        if (t > 0 && t < 120) { r.Inputs.Temperature = t; r.Add("Température", $"{t} °C"); CheckTemperature(r, t); }
                     }
                     break;
             }

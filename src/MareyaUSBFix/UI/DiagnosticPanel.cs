@@ -24,6 +24,10 @@ namespace MareyaUSBFix.UI
         private readonly ModernButton _toggleLog = new ModernButton("Journal détaillé", ButtonKind.Ghost, Theme.Icons.Info) { Height = 30 };
         private readonly TextBox _log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = Theme.Mono, BackColor = Theme.Surface, BorderStyle = BorderStyle.None };
         private readonly Panel _logPanel = new Panel { Dock = DockStyle.Bottom, Height = 130, Visible = false, Padding = new Padding(0, 10, 0, 0), BackColor = Color.White };
+        private readonly HealthGauge _gauge = new HealthGauge { Location = new Point(0, 4) };
+        private readonly Label _gaugeTitle = new Label { AutoSize = true, Font = Theme.Heading, ForeColor = Theme.Text, BackColor = Color.White, Location = new Point(180, 14) };
+        private readonly Label _gaugeText = new Label { AutoSize = true, Font = Theme.Body, ForeColor = Theme.Text, BackColor = Color.White, Location = new Point(181, 46), MaximumSize = new Size(560, 0) };
+        private readonly Panel _gaugePanel = new Panel { Dock = DockStyle.Top, Height = 176, BackColor = Color.White, Visible = false };
         private CancellationTokenSource _cts;
         private DriveEntry _drive;
 
@@ -44,6 +48,9 @@ namespace MareyaUSBFix.UI
             var scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White };
             scroller.Controls.Add(_reasons);
             scroller.Controls.Add(_tiles);
+            _gaugePanel.Controls.AddRange(new Control[] { _gauge, _gaugeTitle, _gaugeText });
+            scroller.Controls.Add(_gaugePanel);
+            scroller.Resize += (s, e) => _gaugeText.MaximumSize = new Size(Math.Max(240, scroller.ClientSize.Width - 200), 0);
             details.Controls.Add(scroller);
             _logPanel.Controls.Add(_log);
             details.Controls.Add(_logPanel);
@@ -88,6 +95,7 @@ namespace MareyaUSBFix.UI
         {
             _tiles.Controls.Clear();
             _reasons.Text = "";
+            _gaugePanel.Visible = false;
             _progress.Visible = false;
             _status.Text = "« Vérifier la santé » est instantané et ne modifie rien. Le test d'authenticité détecte les fausses clés et faux disques.";
             if (_drive == null)
@@ -105,6 +113,7 @@ namespace MareyaUSBFix.UI
             SetBusy(true);
             _tiles.Controls.Clear();
             _reasons.Text = "";
+            _gaugePanel.Visible = false;
             _banner.Set(BannerKind.Info, "Lecture des informations du disque…", "");
             try
             {
@@ -138,13 +147,26 @@ namespace MareyaUSBFix.UI
             }
             _tiles.ResumeLayout();
             _reasons.Text = string.Join(Environment.NewLine, report.Reasons.Select(r => "•  " + r));
+
+            // Jauge de santé en %
+            _gauge.Set(report.Percent, report.Percent.HasValue ? HealthScore.Label(report.Percent.Value) : "inconnue");
+            _gaugeTitle.Text = report.Percent.HasValue ? $"Santé du disque : {report.Percent} %" : "Santé du disque : inconnue";
+            _gaugeTitle.ForeColor = HealthGauge.ColorFor(report.Percent);
+            _gaugeText.Text = !report.Percent.HasValue
+                ? "Ce disque ne transmet pas assez de mesures pour calculer un pourcentage (fréquent pour les clés USB). " +
+                  "Le test d'authenticité vérifie, lui, la mémoire elle-même."
+                : report.PercentBreakdown.Count == 0
+                    ? "Aucune retenue : toutes les mesures disponibles sont bonnes.\n\nLe pourcentage tient compte de l'usure (SSD), " +
+                      "des secteurs défectueux, des erreurs et de la température."
+                    : "Comment ce pourcentage est calculé :\n" + string.Join("\n", report.PercentBreakdown.Select(b => "•  " + b));
+            _gaugePanel.Visible = true;
             _reasons.ForeColor = report.Verdict == HealthVerdict.Critical ? Theme.Danger : report.Verdict == HealthVerdict.Unknown ? Theme.Muted : Theme.Warning;
 
             switch (report.Verdict)
             {
-                case HealthVerdict.Good: _banner.Set(BannerKind.Success, "Santé : bon état", "Aucun signe d'usure ou de panne n'a été détecté."); break;
-                case HealthVerdict.Warning: _banner.Set(BannerKind.Warning, "Santé : à surveiller", "Faites des sauvegardes régulières. Détails ci-dessous."); break;
-                case HealthVerdict.Critical: _banner.Set(BannerKind.Danger, "Risque de panne : sauvegardez vos données au plus vite", "Détails ci-dessous."); break;
+                case HealthVerdict.Good: _banner.Set(BannerKind.Success, "Santé : bon état" + (report.Percent.HasValue ? $" ({report.Percent} %)" : ""), "Aucun signe de panne n'a été détecté."); break;
+                case HealthVerdict.Warning: _banner.Set(BannerKind.Warning, "Santé : à surveiller" + (report.Percent.HasValue ? $" ({report.Percent} %)" : ""), "Faites des sauvegardes régulières. Détails ci-dessous."); break;
+                case HealthVerdict.Critical: _banner.Set(BannerKind.Danger, "Risque de panne : sauvegardez vos données au plus vite" + (report.Percent.HasValue ? $" ({report.Percent} %)" : ""), "Détails ci-dessous."); break;
                 default: _banner.Set(BannerKind.Neutral, "État inconnu", "Ce disque ne transmet pas ses informations de santé (fréquent pour les clés USB)."); break;
             }
         }
@@ -202,6 +224,7 @@ namespace MareyaUSBFix.UI
 
         private void ShowCapacity(CapacityTestResult r, CapacityTestMode mode)
         {
+            _gaugePanel.Visible = false;
             _tiles.Controls.Clear();
             void Tile(string label, string value, string hint = "", Color? c = null)
             {
@@ -259,10 +282,14 @@ namespace MareyaUSBFix.UI
         {
             _drive = new DriveEntry { Root = @"C:\", Name = "Windows", IsSystem = true };
             var report = new DiskHealthReport { Verdict = HealthVerdict.Good };
+            report.Inputs.Temperature = 40; report.Inputs.Reallocated = 0; report.Inputs.Wear = 3;
+            var (pct, notes) = HealthScore.Compute(report.Inputs);
+            report.Percent = pct; report.PercentBreakdown = notes;
             report.Add("État selon Windows", "Sain");
             report.Add("Température", "40 °C");
             report.Add("Heures d'utilisation", DiskHealth.FormatHours(182));
             report.Add("Secteurs réalloués", "0");
+            report.Add("Usure (SSD)", "3 %");
             report.Add("Modèle", "SSD256GB");
             report.Add("Capacité annoncée", "256,1 Go (238,5 Gio)");
             report.Add("Connexion", "SATA");
