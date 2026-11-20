@@ -28,6 +28,7 @@ namespace MareyaUSBFix.UI
         private readonly Label _gaugeTitle = new Label { AutoSize = true, Font = Theme.Heading, ForeColor = Theme.Text, BackColor = Color.White, Location = new Point(180, 14) };
         private readonly Label _gaugeText = new Label { AutoSize = true, Font = Theme.Body, ForeColor = Theme.Text, BackColor = Color.White, Location = new Point(181, 46), MaximumSize = new Size(560, 0) };
         private readonly Panel _gaugePanel = new Panel { Dock = DockStyle.Top, Height = 176, BackColor = Color.White, Visible = false };
+        private readonly Panel _scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White };
         private CancellationTokenSource _cts;
         private DriveEntry _drive;
 
@@ -45,7 +46,7 @@ namespace MareyaUSBFix.UI
             actions.Controls.Add(flow);
 
             var details = new Card { Dock = DockStyle.Fill, Title = "Détails", Padding = new Padding(16, 46, 16, 14), Margin = new Padding(0) };
-            var scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White };
+            var scroller = _scroller;
             scroller.Controls.Add(_reasons);
             scroller.Controls.Add(_tiles);
             _gaugePanel.Controls.AddRange(new Control[] { _gauge, _gaugeTitle, _gaugeText });
@@ -160,6 +161,7 @@ namespace MareyaUSBFix.UI
                       "des secteurs défectueux, des erreurs et de la température."
                     : "Comment ce pourcentage est calculé :\n" + string.Join("\n", report.PercentBreakdown.Select(b => "•  " + b));
             _gaugePanel.Visible = true;
+            ScrollToTop();
             _reasons.ForeColor = report.Verdict == HealthVerdict.Critical ? Theme.Danger : report.Verdict == HealthVerdict.Unknown ? Theme.Muted : Theme.Warning;
 
             switch (report.Verdict)
@@ -240,11 +242,19 @@ namespace MareyaUSBFix.UI
             _reasons.Text = r.Summary();
             _progress.Value = 1000;
             _status.Text = "";
+            ScrollToTop();
 
             if (r.Cancelled) _banner.Set(BannerKind.Warning, "Test arrêté", "Résultat partiel ci-dessous. Les fichiers de test ont été supprimés.");
             else if (r.BytesBad > 0) _banner.Set(BannerKind.Danger, "FAUX OU DÉFECTUEUX : des données sont perdues", "N'y stockez rien d'important. Détails ci-dessous.");
             else if (mode == CapacityTestMode.Full) _banner.Set(BannerKind.Success, "AUTHENTIQUE : toute la mémoire testée est fiable", "Chaque octet écrit a été relu sans erreur.");
             else _banner.Set(BannerKind.Success, "Aucune erreur sur l'échantillon testé", $"Écriture {r.WriteMBps:0.0} Mo/s · lecture {r.ReadMBps:0.0} Mo/s. Lancez le test d'authenticité pour prouver la capacité.");
+        }
+
+        /// <summary>Revenir en haut des détails (sinon la zone peut rester défilée et couper la jauge).</summary>
+        private void ScrollToTop()
+        {
+            _scroller.AutoScrollPosition = Point.Empty;
+            if (IsHandleCreated) BeginInvoke(new Action(() => _scroller.AutoScrollPosition = Point.Empty));
         }
 
         private static string SpeedHint(double mbps) =>

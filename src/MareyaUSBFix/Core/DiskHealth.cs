@@ -106,6 +106,42 @@ namespace MareyaUSBFix.Core
             return report;
         }
 
+        /// <summary>
+        /// Type réel d'un lecteur d'après son bus physique (Windows déclare souvent une carte SD ou un
+        /// disque USB comme « disque fixe ») : « Carte SD », « Clé USB », « Disque externe USB »,
+        /// « SSD interne »… null si inconnu. Lecture seule, rapide.
+        /// </summary>
+        public static string DescribeKind(string driveRoot, bool removableByWindows)
+        {
+            try
+            {
+                var disk = FindPhysicalDisk(driveRoot.Substring(0, 2));
+                if (disk == null) return null;
+                int index = Convert.ToInt32(disk["Index"]);
+                var scope = new ManagementScope(@"\\.\root\Microsoft\Windows\Storage");
+                scope.Connect();
+                using (var s = new ManagementObjectSearcher(scope, new ObjectQuery($"SELECT BusType, MediaType FROM MSFT_PhysicalDisk WHERE DeviceId='{index}'")))
+                {
+                    foreach (ManagementObject pd in s.Get())
+                    {
+                        int bus = Convert.ToInt32(pd["BusType"] ?? 0), media = Convert.ToInt32(pd["MediaType"] ?? 0);
+                        string medium = media == 4 ? "SSD" : media == 3 ? "disque dur" : null;
+                        switch (bus)
+                        {
+                            case 12: return "Carte SD";
+                            case 13: return "Carte mémoire (MMC)";
+                            case 7: return removableByWindows ? "Clé USB" : "Disque externe USB" + (medium != null ? $" ({medium})" : "");
+                            case 17: return "SSD interne (NVMe)";
+                            case 11: return medium == "SSD" ? "SSD interne (SATA)" : "Disque dur interne (SATA)";
+                            case 15: return "Disque virtuel";
+                        }
+                    }
+                }
+            }
+            catch { /* type inconnu : on garde la description de Windows */ }
+            return null;
+        }
+
         private static ManagementObject FindPhysicalDisk(string letter)
         {
             using (var parts = new ManagementObjectSearcher(

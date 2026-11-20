@@ -168,13 +168,18 @@ namespace MareyaUSBFix.UI
                 {
                     if (!d.IsReady || (d.DriveType != DriveType.Removable && d.DriveType != DriveType.Fixed)) continue;
                     bool sys = DriveScanner.IsSystemDrive(d.RootDirectory.FullName);
+                    bool removable = d.DriveType == DriveType.Removable;
+                    string kind = sys ? "Disque de Windows"
+                                : DiskHealth.DescribeKind(d.RootDirectory.FullName, removable)
+                                  ?? (removable ? "Clé USB / carte mémoire" : "Disque dur");
                     drives.Add(new DriveEntry
                     {
                         Root = d.RootDirectory.FullName,
                         Name = string.IsNullOrWhiteSpace(d.VolumeLabel) ? (sys ? "Windows" : "Sans nom") : d.VolumeLabel,
-                        Kind = sys ? "Disque de Windows" : d.DriveType == DriveType.Removable ? "Clé USB / carte mémoire" : "Disque dur",
+                        Kind = kind,
                         Total = d.TotalSize, Free = d.AvailableFreeSpace,
-                        IsRemovable = d.DriveType == DriveType.Removable, IsSystem = sys
+                        // carte SD ou clé déclarée « fixe » par Windows : traitée comme un support amovible
+                        IsRemovable = removable || kind.StartsWith("Carte") || kind == "Clé USB", IsSystem = sys
                     });
                 }
                 catch { /* lecteur indisponible */ }
