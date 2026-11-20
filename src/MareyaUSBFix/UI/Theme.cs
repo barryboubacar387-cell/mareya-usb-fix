@@ -22,6 +22,29 @@ namespace MareyaUSBFix.UI
         public static readonly Font Subtitle = new Font("Segoe UI", 9.5f);
         public static readonly Font Mono = new Font("Consolas", 9f);
 
+        public static readonly Color DisabledBack = Color.FromArgb(0xE6, 0xE8, 0xEB);
+        public static readonly Color DisabledFore = Color.FromArgb(0x9A, 0x9E, 0xA4);
+
+        /// <summary>Pastille de couleur (s'affiche partout, contrairement aux émojis).</summary>
+        public const string Dot = "●";
+
+        /// <summary>
+        /// Les boutons « plats » gardent leur couleur quand ils sont désactivés : on les grise
+        /// nous-mêmes pour qu'on voie d'un coup d'œil qu'ils ne sont pas utilisables.
+        /// </summary>
+        public static void GreyWhenDisabled(System.Windows.Forms.Button b, bool primary)
+        {
+            void Apply()
+            {
+                b.BackColor = b.Enabled ? (primary ? Primary : Color.White) : DisabledBack;
+                b.ForeColor = b.Enabled ? (primary ? Color.White : PrimaryDark) : DisabledFore;
+                b.FlatAppearance.BorderColor = b.Enabled ? Primary : DisabledBack;
+                b.Cursor = b.Enabled ? System.Windows.Forms.Cursors.Hand : System.Windows.Forms.Cursors.Default;
+            }
+            b.EnabledChanged += (s, e) => Apply();
+            Apply();
+        }
+
         private static Icon _icon;
 
         public static Icon AppIcon

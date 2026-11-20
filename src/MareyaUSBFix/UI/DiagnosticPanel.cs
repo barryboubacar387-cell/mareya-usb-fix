@@ -89,6 +89,8 @@ namespace MareyaUSBFix.UI
                 BackColor = primary ? Theme.Primary : Color.White, ForeColor = primary ? Color.White : Theme.PrimaryDark
             };
             b.FlatAppearance.BorderColor = Theme.Primary;
+            b.FlatAppearance.MouseOverBackColor = primary ? Theme.PrimaryDark : Theme.Surface;
+            Theme.GreyWhenDisabled(b, primary);
             return b;
         }
 
@@ -140,12 +142,11 @@ namespace MareyaUSBFix.UI
                 var report = await Task.Run(() => DiskHealth.Check(d.Root, LogFromWorker));
                 foreach (var kv in report.Details) _details.Items.Add(new ListViewItem(new[] { kv.Key, kv.Value }));
                 foreach (var reason in report.Reasons)
-                    _details.Items.Add(new ListViewItem(new[] { "⚠ Constat", reason }) { ForeColor = Theme.Warning });
+                    _details.Items.Add(new ListViewItem(new[] { "Constat", reason }) { ForeColor = Theme.Warning });
                 Color c = report.Verdict == HealthVerdict.Good ? Theme.Success
                         : report.Verdict == HealthVerdict.Warning ? Theme.Warning
                         : report.Verdict == HealthVerdict.Critical ? Theme.Danger : Theme.Muted;
-                string icon = report.Verdict == HealthVerdict.Good ? "🟢" : report.Verdict == HealthVerdict.Warning ? "🟠"
-                            : report.Verdict == HealthVerdict.Critical ? "🔴" : "⚪";
+                string icon = report.Verdict == HealthVerdict.Unknown ? "○" : Theme.Dot;
                 ShowVerdict($"{icon}  Santé : {report.VerdictText}", c);
                 Log($"Santé de {d.Root} : {report.VerdictText}");
             }
@@ -201,10 +202,10 @@ namespace MareyaUSBFix.UI
                 _details.Items.Add(new ListViewItem(new[] { "Vitesse d'écriture réelle", $"{r.WriteMBps:0.0} Mo/s" }));
                 _details.Items.Add(new ListViewItem(new[] { "Vitesse de lecture réelle", $"{r.ReadMBps:0.0} Mo/s" }));
                 _details.Items.Add(new ListViewItem(new[] { "Conclusion", r.Summary() }));
-                if (r.Cancelled) ShowVerdict("⏹  Test arrêté (résultat partiel ci-dessous)", Theme.Warning);
-                else if (r.BytesBad > 0) ShowVerdict("🔴  FAUX OU DÉFECTUEUX : des données sont perdues", Theme.Danger);
-                else if (mode == CapacityTestMode.Full) ShowVerdict("🟢  AUTHENTIQUE : toute la mémoire testée est fiable", Theme.Success);
-                else ShowVerdict($"🟢  Aucune erreur — écriture {r.WriteMBps:0.0} Mo/s, lecture {r.ReadMBps:0.0} Mo/s", Theme.Success);
+                if (r.Cancelled) ShowVerdict(Theme.Dot + "  Test arrêté (résultat partiel ci-dessous)", Theme.Warning);
+                else if (r.BytesBad > 0) ShowVerdict(Theme.Dot + "  FAUX OU DÉFECTUEUX : des données sont perdues", Theme.Danger);
+                else if (mode == CapacityTestMode.Full) ShowVerdict(Theme.Dot + "  AUTHENTIQUE : toute la mémoire testée est fiable", Theme.Success);
+                else ShowVerdict(Theme.Dot + $"  Aucune erreur — écriture {r.WriteMBps:0.0} Mo/s, lecture {r.ReadMBps:0.0} Mo/s", Theme.Success);
                 _progress.Value = 1000;
             }
             catch (Exception ex)

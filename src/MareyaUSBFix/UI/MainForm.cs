@@ -70,6 +70,7 @@ namespace MareyaUSBFix.UI
             };
             b.FlatAppearance.BorderColor = primary ? Theme.Primary : Theme.Primary;
             b.FlatAppearance.MouseOverBackColor = primary ? Theme.PrimaryDark : Theme.Surface;
+            Theme.GreyWhenDisabled(b, primary);
             return b;
         }
 

@@ -272,7 +272,22 @@ namespace MareyaUSBFix.Core
             return gb >= 1 ? $"{gb:0.#} Go ({b / 1073741824.0:0.#} Gio)" : $"{b / 1e6:0} Mo";
         }
 
-        private static string FormatHours(long h) => h >= 24 ? $"{h} h (≈ {h / 24.0 / 365.0:0.#} an(s) en marche)" : $"{h} h";
+        /// <summary>« 182 h (≈ 8 jours de fonctionnement) », « 9 500 h (≈ 1,1 an de fonctionnement) »…</summary>
+        public static string FormatHours(long h)
+        {
+            string hours = h.ToString("#,0").Replace(",", "\u202F");
+            if (h < 24) return $"{hours} h";
+            double days = h / 24.0;
+            string span;
+            if (days < 60) span = $"{Math.Round(days):0} jour{(Math.Round(days) >= 2 ? "s" : "")}";
+            else if (days < 365) span = $"{Math.Round(days / 30.44):0} mois";
+            else
+            {
+                double years = days / 365.25;
+                span = $"{years:0.#} an{(years >= 2 ? "s" : "")}";
+            }
+            return $"{hours} h (≈ {span} de fonctionnement)";
+        }
 
         private static void Safe(Action a, string what, Action<string> log)
         {
