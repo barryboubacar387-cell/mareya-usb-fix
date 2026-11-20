@@ -34,6 +34,7 @@ namespace MareyaUSBFix.UI
         private readonly CheckBox _autoProtect = new CheckBox { Text = "Protection automatique : nettoyer chaque clé dès qu'elle est branchée", AutoSize = true, Font = Theme.Body };
         private readonly ProgressBar _progress = new ProgressBar { Style = ProgressBarStyle.Marquee, Visible = false, Dock = DockStyle.Fill, MarqueeAnimationSpeed = 30 };
 
+        private DiagnosticPanel _diagnostic;
         private List<Finding> _findings = new List<Finding>();
         private string _scannedRoot;
         private DeviceWatcher _watcher;
@@ -47,7 +48,7 @@ namespace MareyaUSBFix.UI
             AutoScaleMode = AutoScaleMode.Dpi;
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(820, 600);
-            Size = new Size(980, 700);
+            Size = new Size(1000, 760);
             BackColor = Color.White;
 
             BuildLayout();
@@ -79,7 +80,7 @@ namespace MareyaUSBFix.UI
             var title = new Label { Text = "Mareya USB Fix", Font = Theme.Title, ForeColor = Color.White, AutoSize = true, Location = new Point(20, 10) };
             var subtitle = new Label
             {
-                Text = "Supprime le virus « raccourci » et récupère vos fichiers cachés sur les clés USB et disques durs.",
+                Text = "Supprime le virus « raccourci », récupère vos fichiers cachés et vérifie la santé et l'authenticité de vos disques.",
                 Font = Theme.Subtitle, ForeColor = Color.FromArgb(0xDD, 0xE8, 0xFF), AutoSize = true, Location = new Point(22, 46)
             };
             header.Controls.Add(title);
@@ -130,7 +131,18 @@ namespace MareyaUSBFix.UI
             _autoProtect.Margin = new Padding(0, 8, 0, 0);
             body.Controls.Add(_autoProtect, 0, 6);
 
-            Controls.Add(body);
+            // Deux onglets : réparation (virus) et diagnostic du disque (santé, authenticité)
+            var tabs = new TabControl { Dock = DockStyle.Fill, Font = Theme.Bold, Padding = new Point(16, 6) };
+            var repairTab = new TabPage("Réparation (virus raccourci)") { BackColor = Color.White };
+            repairTab.Controls.Add(body);
+            var diagTab = new TabPage("Diagnostic du disque") { BackColor = Color.White };
+            _diagnostic = new DiagnosticPanel();
+            diagTab.Controls.Add(_diagnostic);
+            tabs.TabPages.Add(repairTab);
+            tabs.TabPages.Add(diagTab);
+            body.Font = Theme.Body;
+
+            Controls.Add(tabs);
             Controls.Add(header);
         }
 
@@ -156,7 +168,7 @@ namespace MareyaUSBFix.UI
             Load += (s, e) =>
             {
                 _watcher = new DeviceWatcher(this);
-                _watcher.DrivesChanged += () => BeginInvoke(new Action(LoadDrives));
+                _watcher.DrivesChanged += () => BeginInvoke(new Action(() => { LoadDrives(); _diagnostic?.LoadDrives(); }));
                 _watcher.DriveArrived += root =>
                 {
                     SelectDrive(root);

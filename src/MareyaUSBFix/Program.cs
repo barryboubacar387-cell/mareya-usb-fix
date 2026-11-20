@@ -18,7 +18,9 @@ namespace MareyaUSBFix
         private static int Main(string[] args)
         {
             if (args.Any(a => a.Equals("/scan", StringComparison.OrdinalIgnoreCase)
-                              || a.Equals("/restore", StringComparison.OrdinalIgnoreCase)))
+                              || a.Equals("/restore", StringComparison.OrdinalIgnoreCase)
+                              || a.Equals("/health", StringComparison.OrdinalIgnoreCase)
+                              || a.Equals("/captest", StringComparison.OrdinalIgnoreCase)))
                 return RunCommandLine(args);
 
             Application.EnableVisualStyles();
@@ -49,6 +51,37 @@ namespace MareyaUSBFix
             string target = Arg("/scan");
             string logFile = Arg("/log");
             int remaining;
+
+            // MareyaUSBFix.exe /health E:\ : état de santé du disque (lecture seule)
+            string healthRoot = Arg("/health");
+            if (healthRoot != null)
+            {
+                try
+                {
+                    var h = DiskHealth.Check(healthRoot, Log);
+                    Log("Verdict : " + h.VerdictText);
+                    foreach (var r in h.Reasons) Log("  - " + r);
+                    foreach (var d in h.Details) Log($"  {d.Key} : {d.Value}");
+                }
+                catch (Exception ex) { Log("Erreur : " + ex.Message); return -1; }
+                finally { if (!string.IsNullOrEmpty(logFile)) File.WriteAllLines(logFile, lines); }
+                return 0;
+            }
+
+            // MareyaUSBFix.exe /captest E:\ [/speed] [/limit Mo] : test d'authenticité (0 = authentique, 1 = erreurs)
+            string capRoot = Arg("/captest");
+            if (capRoot != null)
+            {
+                try
+                {
+                    long.TryParse(Arg("/limit"), out long limitMb);
+                    var r = CapacityTest.Run(capRoot, Flag("/speed") ? CapacityTestMode.Speed : CapacityTestMode.Full,
+                        null, System.Threading.CancellationToken.None, Log, limitMb << 20);
+                    return r.Authentic ? 0 : 1;
+                }
+                catch (Exception ex) { Log("Erreur : " + ex.Message); return -1; }
+                finally { if (!string.IsNullOrEmpty(logFile)) File.WriteAllLines(logFile, lines); }
+            }
 
             // MareyaUSBFix.exe /restore E:\ : remet à leur place tous les éléments de la quarantaine
             string restoreRoot = Arg("/restore");

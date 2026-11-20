@@ -274,6 +274,47 @@ Check (Test-Path "$root\x8f2k.vbe") "fichier restauré à son emplacement d'orig
 Check (Test-Path "$root\WindowsServices\helper.vbs") "dossier restauré avec son contenu"
 Check (Test-Path "$root\Documents.lnk") "raccourci restauré"
 
+Write-Host "== Diagnostic : santé du disque (lecture seule)"
+$healthLog = Join-Path $backing "..\health.log"
+$p = Start-Process $Exe -ArgumentList "/health", "C:\", "/log", "`"$healthLog`"" -Wait -PassThru
+Get-Content $healthLog | ForEach-Object { Write-Host "    $_" }
+Check ($p.ExitCode -eq 0) "diagnostic de santé sans erreur (code $($p.ExitCode))"
+Check (Select-String -Path $healthLog -Pattern '^Verdict : ' -Quiet) "un verdict de santé est donné"
+Check (Select-String -Path $healthLog -Pattern 'Modèle' -Quiet) "l'identité du disque est lue"
+
+Write-Host "== Diagnostic : test d'authenticité sur un vrai disque virtuel (VHD de 300 Mo)"
+$vhd = Join-Path $backing "..\capacite.vhdx"
+Remove-Item $vhd -Force -ErrorAction SilentlyContinue
+$dp = Join-Path $backing "..\diskpart.txt"
+@"
+create vdisk file="$vhd" maximum=300 type=expandable
+attach vdisk
+create partition primary
+format fs=ntfs quick label=TESTCAP
+assign letter=V
+"@ | Set-Content -Encoding ascii $dp
+diskpart /s $dp | Out-Null
+Check (Test-Path "V:\") "(préparation) disque virtuel V: monté"
+Set-Content "V:\mon-document.txt" "document personnel"
+$hash = (Get-FileHash "V:\mon-document.txt").Hash
+$capLog = Join-Path $backing "..\captest.log"
+$p = Start-Process $Exe -ArgumentList "/captest", "V:\", "/log", "`"$capLog`"" -Wait -PassThru
+Get-Content $capLog | ForEach-Object { Write-Host "    $_" }
+Check ($p.ExitCode -eq 0) "disque authentique reconnu comme tel (code $($p.ExitCode))"
+Check (Select-String -Path $capLog -Pattern 'AUTHENTIQUE' -Quiet) "verdict « AUTHENTIQUE » affiché"
+Check (Select-String -Path $capLog -Pattern 'écriture [0-9]' -Quiet) "vitesses réelles mesurées"
+Check (-not (Test-Path "V:\Mareya Test Capacite")) "fichiers de test supprimés à la fin"
+Check ((Get-FileHash "V:\mon-document.txt").Hash -eq $hash) "fichier personnel intact"
+$p = Start-Process $Exe -ArgumentList "/captest", "V:\", "/speed", "/log", "`"$capLog`"" -Wait -PassThru
+Check ($p.ExitCode -eq 0) "test de vitesse rapide sans erreur (code $($p.ExitCode))"
+$p = Start-Process $Exe -ArgumentList "/captest", "C:\", "/limit", "1", "/log", "`"$capLog`"" -Wait -PassThru
+Check ($p.ExitCode -eq -1) "test d'authenticité refusé sur le disque de Windows"
+@"
+select vdisk file="$vhd"
+detach vdisk
+"@ | Set-Content -Encoding ascii $dp
+diskpart /s $dp | Out-Null
+
 Write-Host "== Vérifications : ordinateur"
 $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MareyaTestVirus" -ErrorAction SilentlyContinue
 Check ($null -eq $run) "entrée de démarrage du registre supprimée"

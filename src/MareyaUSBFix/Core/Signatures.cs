@@ -43,7 +43,7 @@ namespace MareyaUSBFix.Core
         public static readonly HashSet<string> ProtectedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "System Volume Information", "$RECYCLE.BIN", "$Recycle.Bin", "$WinREAgent", "Recovery", "Boot", "EFI",
-            "Quarantaine Mareya USB Fix"
+            "Quarantaine Mareya USB Fix", "Mareya Test Capacite"
         };
 
         /// <summary>Fichiers que Windows crée et garde cachés de lui-même.</summary>

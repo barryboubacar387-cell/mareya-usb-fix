@@ -93,6 +93,21 @@ Pour l'arrêter : clic droit sur l'icône, puis **Désactiver la protection auto
 
 Le disque où Windows est installé (en général `C:`) n'est jamais traité comme une clé.
 
+## 6. Diagnostic du disque (onglet « Diagnostic du disque »)
+
+**Vérifier la santé** (instantané, ne modifie rien) : verdict 🟢 Bon état / 🟠 À surveiller /
+🔴 Risque de panne, avec température, heures d'utilisation, usure des SSD, secteurs défectueux,
+modèle et numéro de série. Les clés USB et beaucoup de boîtiers externes ne transmettent pas ces
+informations : le logiciel l'indique (« État inconnu ») au lieu d'inventer un résultat.
+
+**Test d'authenticité (complet)** : détecte les **fausses clés et faux disques** (par exemple une
+« 1 To » qui n'a que 32 Go). Le logiciel remplit l'**espace libre** de données de test, les relit
+sans passer par la mémoire de Windows, et vérifie chaque octet. Vos fichiers ne sont pas touchés et
+les fichiers de test sont supprimés à la fin, même si vous arrêtez le test. Pour vérifier toute la
+capacité annoncée, testez la clé **vide**. Le test peut être long (≈ 1 h pour une clé USB 2.0 de 64 Go).
+
+**Test de vitesse (rapide)** : écrit et relit 256 Mo pour mesurer la vitesse réelle.
+
 ## Bon à savoir
 
 - Mareya USB Fix cible le virus raccourci. Il ne remplace pas un antivirus : faites aussi une
@@ -114,5 +129,8 @@ MareyaUSBFix.exe /scan E:\ [/system] [/repair] [/vaccinate] [/log rapport.txt]
 | `/all` | avec `/repair` : inclut aussi les éléments « à vérifier » |
 | `/vaccinate` | vaccine le lecteur |
 | `/log fichier` | enregistre le rapport |
+| `/health E:\` | état de santé du disque |
+| `/captest E:\ [/speed]` | test d'authenticité (0 = authentique, 1 = données perdues) |
+| `/restore E:\` | remet en place tout le contenu de la quarantaine |
 
 Code de retour : nombre d'éléments du virus restants (`0` = propre, `-1` = erreur).
