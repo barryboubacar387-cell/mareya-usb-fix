@@ -110,6 +110,12 @@ namespace MareyaUSBFix.UI
                 return;
             }
 
+            // colonne d'étiquettes alignée : largeur de la plus longue étiquette
+            int pillColumn = 0;
+            foreach (var r in _rows)
+                if (!string.IsNullOrEmpty(r.Pill))
+                    pillColumn = Math.Max(pillColumn, TextRenderer.MeasureText(r.Pill, Theme.Small).Width + 14 + 16);
+
             for (int i = 0; i < _rows.Count; i++)
             {
                 int y = i * RowHeight - Offset;
@@ -139,9 +145,9 @@ namespace MareyaUSBFix.UI
 
                 if (!string.IsNullOrEmpty(row.Pill))
                 {
-                    Pill.Draw(g, row.Pill, new Rectangle(x, y, 120, RowHeight), row.PillFore, row.PillBack);
-                    x += 118;
+                    Pill.Draw(g, row.Pill, new Rectangle(x, y, pillColumn, RowHeight), row.PillFore, row.PillBack);
                 }
+                x += pillColumn;
 
                 int rightW = string.IsNullOrEmpty(row.Right) ? 0 : 150;
                 int textW = width - x - rightW - 16;

@@ -104,14 +104,14 @@ namespace MareyaUSBFix.UI
             }
 
             var protect = new Panel { Dock = DockStyle.Bottom, Height = 104, BackColor = Theme.Navy, Padding = new Padding(20, 0, 16, 20) };
-            _autoProtect.Location = new Point(20, 18);
-            _autoProtect.Width = 200;
+            _autoProtect.Location = new Point(18, 16);
+            _autoProtect.Width = 216;
             protect.Controls.Add(_autoProtect);
             protect.Controls.Add(new Label
             {
                 Text = "Nettoie automatiquement chaque clé dès qu'elle est branchée.",
                 Font = Theme.Small, ForeColor = Color.FromArgb(0x9F, 0xB3, 0xD6), BackColor = Theme.Navy,
-                Location = new Point(20, 52), Size = new Size(200, 40)
+                Location = new Point(20, 50), Size = new Size(204, 40)
             });
 
             sidebar.Controls.Add(navFlow);
@@ -129,6 +129,7 @@ namespace MareyaUSBFix.UI
             var refreshHost = new Panel { Dock = DockStyle.Right, Width = _refresh.Width + 8, BackColor = Theme.Background, Padding = new Padding(8, 24, 0, 24) };
             refreshHost.Controls.Add(_refresh);
             _driveStrip.Controls.Add(_tiles);
+            _driveStrip.Resize += (s, e) => LayoutTiles();
             _driveStrip.Controls.Add(refreshHost);
 
             content.Controls.Add(_host);
@@ -196,6 +197,7 @@ namespace MareyaUSBFix.UI
             if (drives.Count == 0)
                 _tiles.Controls.Add(new Label { Text = "Aucun disque détecté : branchez une clé USB.", AutoSize = true, Font = Theme.Body, ForeColor = Theme.Muted, Margin = new Padding(4, 30, 0, 0) });
             _tiles.ResumeLayout();
+            LayoutTiles();
 
             var keep = drives.FirstOrDefault(d => string.Equals(d.Root, previous, StringComparison.OrdinalIgnoreCase))
                        ?? drives.FirstOrDefault(d => d.IsRemovable) ?? drives.FirstOrDefault(d => !d.IsSystem) ?? drives.FirstOrDefault();
@@ -213,6 +215,18 @@ namespace MareyaUSBFix.UI
             _repair.SetDrive(entry);
             _diagnostic.SetDrive(entry);
             if (_page == 2 || force) _quarantine.SetDrive(entry);
+        }
+
+        /// <summary>Les tuiles se partagent la largeur disponible ; défilement seulement s'il y a beaucoup de disques.</summary>
+        private void LayoutTiles()
+        {
+            var tiles = _tiles.Controls.OfType<DriveTile>().ToList();
+            if (tiles.Count == 0) { _driveStrip.Height = 108; return; }
+            int available = _driveStrip.ClientSize.Width - _refresh.Width - 24;
+            int width = Math.Max(200, Math.Min(300, (available - 12 * tiles.Count) / tiles.Count));
+            bool overflow = (width + 12) * tiles.Count > available;
+            foreach (var t in tiles) t.Width = width;
+            _driveStrip.Height = overflow ? 126 : 108;
         }
 
         private bool AnyBusy => _repair.Busy || _diagnostic.Busy;

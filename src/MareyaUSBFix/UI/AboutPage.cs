@@ -25,8 +25,8 @@ namespace MareyaUSBFix.UI
             var text = new Label
             {
                 Location = new Point(28, 122),
-                Size = new Size(760, 250),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                AutoSize = true,
+                MaximumSize = new Size(760, 0),
                 Font = Theme.Body,
                 ForeColor = Theme.Text,
                 BackColor = Color.White,
@@ -41,7 +41,7 @@ namespace MareyaUSBFix.UI
                     "Mareya USB Fix ne remplace pas un antivirus : faites aussi des analyses avec Windows Defender."
             };
 
-            var links = new FlowLayoutPanel { Location = new Point(26, 392), Size = new Size(760, 44), BackColor = Color.White, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+            var links = new FlowLayoutPanel { Location = new Point(26, 392), Size = new Size(760, 44), BackColor = Color.White };
             var guide = new ModernButton("Guide d'utilisation", ButtonKind.Primary, Theme.Icons.Info);
             var download = new ModernButton("Page de téléchargement", ButtonKind.Secondary, Theme.Icons.Link);
             guide.Click += (s, e) => Open(GuideUrl);
@@ -49,7 +49,15 @@ namespace MareyaUSBFix.UI
             links.Controls.AddRange(new Control[] { guide, download });
 
             card.Controls.AddRange(new Control[] { logo, name, version, text, links });
-            card.Resize += (s, e) => { text.Width = card.Width - 56; links.Width = card.Width - 56; };
+            void Arrange()
+            {
+                text.MaximumSize = new Size(Math.Max(300, card.Width - 56), 0);
+                links.Width = card.Width - 56;
+                links.Top = text.Bottom + 22;
+                card.Height = links.Bottom + 22;
+            }
+            card.Resize += (s, e) => Arrange();
+            text.SizeChanged += (s, e) => Arrange();
             Controls.Add(card);
         }
 
