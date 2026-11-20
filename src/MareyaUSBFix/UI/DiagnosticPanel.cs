@@ -9,223 +9,187 @@ using MareyaUSBFix.Core;
 
 namespace MareyaUSBFix.UI
 {
-    /// <summary>Onglet « Diagnostic du disque » : santé (SMART) et test d'authenticité (fausse capacité).</summary>
+    /// <summary>Page « Diagnostic » : santé du disque (SMART) et test d'authenticité (fausse capacité).</summary>
     public sealed class DiagnosticPanel : UserControl
     {
-        private readonly ComboBox _drives = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Font = Theme.Body, Dock = DockStyle.Fill };
-        private readonly Button _refresh = Btn("Actualiser", false);
-        private readonly Button _health = Btn("Vérifier la santé", true);
-        private readonly Button _speed = Btn("Test de vitesse (rapide)", false);
-        private readonly Button _full = Btn("Test d'authenticité (complet)", true);
-        private readonly Button _stop = Btn("Arrêter", false);
-        private readonly Label _verdict = new Label { Dock = DockStyle.Fill, Font = new Font("Segoe UI Semibold", 13f), TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
-        private readonly Label _status = new Label { Dock = DockStyle.Fill, Font = Theme.Body, ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleLeft };
-        private readonly ProgressBar _progress = new ProgressBar { Dock = DockStyle.Fill, Maximum = 1000 };
-        private readonly ListView _details = new ListView { View = View.Details, FullRowSelect = true, Dock = DockStyle.Fill, Font = Theme.Body, BorderStyle = BorderStyle.FixedSingle, HeaderStyle = ColumnHeaderStyle.Nonclickable };
-        private readonly TextBox _log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = Theme.Mono, BackColor = Color.White, BorderStyle = BorderStyle.FixedSingle };
+        private readonly ModernButton _health = new ModernButton("Vérifier la santé", ButtonKind.Primary, Theme.Icons.Health);
+        private readonly ModernButton _speed = new ModernButton("Test de vitesse", ButtonKind.Secondary, Theme.Icons.Speed);
+        private readonly ModernButton _full = new ModernButton("Test d'authenticité", ButtonKind.Primary, Theme.Icons.Shield);
+        private readonly ModernButton _stop = new ModernButton("Arrêter", ButtonKind.Secondary, Theme.Icons.Stop);
+        private readonly Banner _banner = new Banner { Dock = DockStyle.Fill, Margin = new Padding(0) };
+        private readonly SlimProgress _progress = new SlimProgress { Dock = DockStyle.Top, Visible = false };
+        private readonly Label _status = new Label { Dock = DockStyle.Fill, Font = Theme.Small, ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleLeft, BackColor = Theme.Background };
+        private readonly FlowLayoutPanel _tiles = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.White, WrapContents = true };
+        private readonly Label _reasons = new Label { Dock = DockStyle.Top, AutoSize = true, Font = Theme.Body, ForeColor = Theme.Warning, BackColor = Color.White, Padding = new Padding(2, 4, 0, 8) };
+        private readonly ModernButton _toggleLog = new ModernButton("Journal détaillé", ButtonKind.Ghost, Theme.Icons.Info) { Height = 30 };
+        private readonly TextBox _log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = Theme.Mono, BackColor = Theme.Surface, BorderStyle = BorderStyle.None };
+        private readonly Panel _logPanel = new Panel { Dock = DockStyle.Bottom, Height = 130, Visible = false, Padding = new Padding(0, 10, 0, 0), BackColor = Color.White };
         private CancellationTokenSource _cts;
-        private string _shownRoot;
-        private bool _busy;
+        private DriveEntry _drive;
+
+        public bool Busy { get; private set; }
+        public event Action BusyChanged;
 
         public DiagnosticPanel()
         {
             Dock = DockStyle.Fill;
-            BackColor = Color.White;
-            Padding = new Padding(20, 14, 20, 10);
+            BackColor = Theme.Background;
 
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7 };
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // lecteur
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // boutons
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));   // verdict
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));   // progression
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));   // statut
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 60));    // détails
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 40));    // journal
+            var actions = new Card { Dock = DockStyle.Fill, Padding = new Padding(16, 14, 16, 14), Margin = new Padding(0, 0, 0, 14) };
+            var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, BackColor = Color.White };
+            flow.Controls.AddRange(new Control[] { _health, _speed, _full, _stop });
+            actions.Controls.Add(flow);
 
-            var driveRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, AutoSize = true };
-            driveRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            driveRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            driveRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            driveRow.Controls.Add(new Label { Text = "Disque à diagnostiquer :", AutoSize = true, Font = Theme.Bold, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 0) }, 0, 0);
-            driveRow.Controls.Add(_drives, 1, 0);
-            _refresh.Margin = new Padding(8, 0, 0, 0);
-            driveRow.Controls.Add(_refresh, 2, 0);
+            var details = new Card { Dock = DockStyle.Fill, Title = "Détails", Padding = new Padding(16, 46, 16, 14), Margin = new Padding(0) };
+            var scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White };
+            scroller.Controls.Add(_reasons);
+            scroller.Controls.Add(_tiles);
+            details.Controls.Add(scroller);
+            _logPanel.Controls.Add(_log);
+            details.Controls.Add(_logPanel);
+            details.Controls.Add(_toggleLog);
+            details.Resize += (s, e) => _toggleLog.Location = new Point(details.Width - _toggleLog.Width - 14, 10);
+            _toggleLog.BringToFront();
 
-            var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 4) };
-            buttons.Controls.AddRange(new Control[] { _health, _speed, _full, _stop });
+            var statusHost = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Background, Padding = new Padding(4, 8, 4, 0) };
+            statusHost.Controls.Add(_status);
+            statusHost.Controls.Add(_progress);
 
-            _details.Columns.Add("Élément", 220);
-            _details.Columns.Add("Valeur", 600);
-            var logBox = new GroupBox { Text = "Journal", Dock = DockStyle.Fill, Font = Theme.Bold, Padding = new Padding(6) };
-            logBox.Controls.Add(_log);
-
-            layout.Controls.Add(driveRow, 0, 0);
-            layout.Controls.Add(buttons, 0, 1);
-            layout.Controls.Add(_verdict, 0, 2);
-            layout.Controls.Add(_progress, 0, 3);
-            layout.Controls.Add(_status, 0, 4);
-            layout.Controls.Add(_details, 0, 5);
-            layout.Controls.Add(logBox, 0, 6);
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Theme.Background };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.Controls.Add(actions, 0, 0);
+            layout.Controls.Add(_banner, 0, 1);
+            layout.Controls.Add(statusHost, 0, 2);
+            layout.Controls.Add(details, 0, 3);
             Controls.Add(layout);
 
-            _refresh.Click += (s, e) => LoadDrives();
             _health.Click += async (s, e) => await CheckHealthAsync();
             _speed.Click += async (s, e) => await CapacityAsync(CapacityTestMode.Speed);
             _full.Click += async (s, e) => await CapacityAsync(CapacityTestMode.Full);
             _stop.Click += (s, e) => _cts?.Cancel();
-            _drives.SelectedIndexChanged += (s, e) =>
-            {
-                // nouveau disque choisi : résultats, verdict et journal de l'ancien disque effacés
-                string root = Selected?.Root;
-                if (!string.Equals(root, _shownRoot, StringComparison.OrdinalIgnoreCase))
-                {
-                    _shownRoot = root;
-                    _details.Items.Clear();
-                    _log.Clear();
-                    _progress.Value = 0;
-                    ShowVerdict(root == null ? "" : $"Disque {root.TrimEnd('\\')} sélectionné : lancez un diagnostic.", Theme.Muted);
-                    _status.Text = "« Vérifier la santé » est instantané et ne modifie rien. Le test d'authenticité détecte les fausses clés.";
-                }
-                UpdateButtons();
-            };
+            _toggleLog.Click += (s, e) => { _logPanel.Visible = !_logPanel.Visible; _toggleLog.Text = _logPanel.Visible ? "Masquer le journal" : "Journal détaillé"; };
 
-            LoadDrives();
-            _verdict.Text = "Choisissez un disque puis lancez un diagnostic.";
-            _verdict.ForeColor = Theme.Muted;
-            _status.Text = "« Vérifier la santé » est instantané et ne modifie rien. Le test d'authenticité détecte les fausses clés.";
-        }
-
-        private static Button Btn(string text, bool primary)
-        {
-            var b = new Button
-            {
-                Text = text, AutoSize = true, Padding = new Padding(12, 6, 12, 6), Margin = new Padding(0, 0, 8, 0),
-                FlatStyle = FlatStyle.Flat, Font = Theme.Bold, Cursor = Cursors.Hand,
-                BackColor = primary ? Theme.Primary : Color.White, ForeColor = primary ? Color.White : Theme.PrimaryDark
-            };
-            b.FlatAppearance.BorderColor = Theme.Primary;
-            b.FlatAppearance.MouseOverBackColor = primary ? Theme.PrimaryDark : Theme.Surface;
-            Theme.GreyWhenDisabled(b, primary);
-            return b;
-        }
-
-        private sealed class DriveItem
-        {
-            public string Root, Label;
-            public bool IsSystem;
-            public override string ToString() => Label;
-        }
-
-        public void LoadDrives()
-        {
-            string previous = (_drives.SelectedItem as DriveItem)?.Root;
-            _drives.Items.Clear();
-            foreach (var d in DriveInfo.GetDrives())
-            {
-                try
-                {
-                    if (!d.IsReady || (d.DriveType != DriveType.Removable && d.DriveType != DriveType.Fixed)) continue;
-                    bool sys = DriveScanner.IsSystemDrive(d.RootDirectory.FullName);
-                    string kind = d.DriveType == DriveType.Removable ? "Clé USB / carte" : sys ? "Disque de Windows" : "Disque";
-                    string name = string.IsNullOrWhiteSpace(d.VolumeLabel) ? "Sans nom" : d.VolumeLabel;
-                    _drives.Items.Add(new DriveItem
-                    {
-                        Root = d.RootDirectory.FullName, IsSystem = sys,
-                        Label = $"{d.RootDirectory.FullName.TrimEnd('\\')}  —  {name}  ({kind}, {d.TotalSize / 1e9:0.#} Go, {d.AvailableFreeSpace / 1e9:0.#} Go libres)"
-                    });
-                }
-                catch { /* lecteur indisponible */ }
-            }
-            var again = _drives.Items.Cast<DriveItem>().FirstOrDefault(i => i.Root == previous)
-                        ?? _drives.Items.Cast<DriveItem>().FirstOrDefault(i => i.Label.Contains("Clé USB"))
-                        ?? _drives.Items.Cast<DriveItem>().FirstOrDefault();
-            if (again != null) _drives.SelectedItem = again;
+            ResetView();
             UpdateButtons();
         }
 
-        private DriveItem Selected => _drives.SelectedItem as DriveItem;
+        public void SetDrive(DriveEntry drive)
+        {
+            bool changed = !string.Equals(drive?.Root, _drive?.Root, StringComparison.OrdinalIgnoreCase);
+            _drive = drive;
+            if (changed) { ResetView(); _log.Clear(); }
+            UpdateButtons();
+        }
+
+        private void ResetView()
+        {
+            _tiles.Controls.Clear();
+            _reasons.Text = "";
+            _progress.Visible = false;
+            _status.Text = "« Vérifier la santé » est instantané et ne modifie rien. Le test d'authenticité détecte les fausses clés et faux disques.";
+            if (_drive == null)
+                _banner.Set(BannerKind.Info, "Choisissez un disque ci-dessus.", "");
+            else
+                _banner.Set(BannerKind.Info, $"Disque {_drive.Letter} « {_drive.Name} » sélectionné.",
+                    _drive.IsSystem ? "Disque de Windows : la santé peut être vérifiée ; les tests d'écriture ne sont pas proposés."
+                                    : "Lancez un diagnostic : santé (instantané), vitesse (quelques secondes) ou authenticité (complet).");
+        }
 
         private async Task CheckHealthAsync()
         {
-            var d = Selected;
-            if (d == null || _busy) return;
+            var d = _drive;
+            if (d == null || Busy) return;
             SetBusy(true);
-            _details.Items.Clear();
-            ShowVerdict("Lecture des informations du disque…", Theme.PrimaryDark);
+            _tiles.Controls.Clear();
+            _reasons.Text = "";
+            _banner.Set(BannerKind.Info, "Lecture des informations du disque…", "");
             try
             {
                 var report = await Task.Run(() => DiskHealth.Check(d.Root, LogFromWorker));
-                foreach (var kv in report.Details) _details.Items.Add(new ListViewItem(new[] { kv.Key, kv.Value }));
-                foreach (var reason in report.Reasons)
-                    _details.Items.Add(new ListViewItem(new[] { "Constat", reason }) { ForeColor = Theme.Warning });
-                Color c = report.Verdict == HealthVerdict.Good ? Theme.Success
-                        : report.Verdict == HealthVerdict.Warning ? Theme.Warning
-                        : report.Verdict == HealthVerdict.Critical ? Theme.Danger : Theme.Muted;
-                string icon = report.Verdict == HealthVerdict.Unknown ? "○" : Theme.Dot;
-                ShowVerdict($"{icon}  Santé : {report.VerdictText}", c);
+                ShowHealth(report);
                 Log($"Santé de {d.Root} : {report.VerdictText}");
             }
             catch (Exception ex)
             {
-                ShowVerdict("Diagnostic impossible : " + ex.Message, Theme.Danger);
+                _banner.Set(BannerKind.Danger, "Diagnostic impossible.", ex.Message);
                 Log("Erreur : " + ex.Message);
             }
             finally { SetBusy(false); }
         }
 
+        private void ShowHealth(DiskHealthReport report)
+        {
+            _tiles.SuspendLayout();
+            _tiles.Controls.Clear();
+            foreach (var kv in report.Details)
+            {
+                string value = kv.Value, hint = "";
+                int paren = value.IndexOf(" (", StringComparison.Ordinal);
+                if (paren > 0 && value.EndsWith(")")) { hint = value.Substring(paren + 2, value.Length - paren - 3); value = value.Substring(0, paren); }
+                var tile = new StatTile(kv.Key);
+                Color? color = null;
+                if ((kv.Key.StartsWith("Secteurs") && value != "0")) color = Theme.Danger;
+                if (kv.Key == "État selon Windows" && value == "Sain") color = Theme.Success;
+                tile.Set(value, hint, color);
+                _tiles.Controls.Add(tile);
+            }
+            _tiles.ResumeLayout();
+            _reasons.Text = string.Join(Environment.NewLine, report.Reasons.Select(r => "•  " + r));
+            _reasons.ForeColor = report.Verdict == HealthVerdict.Critical ? Theme.Danger : report.Verdict == HealthVerdict.Unknown ? Theme.Muted : Theme.Warning;
+
+            switch (report.Verdict)
+            {
+                case HealthVerdict.Good: _banner.Set(BannerKind.Success, "Santé : bon état", "Aucun signe d'usure ou de panne n'a été détecté."); break;
+                case HealthVerdict.Warning: _banner.Set(BannerKind.Warning, "Santé : à surveiller", "Faites des sauvegardes régulières. Détails ci-dessous."); break;
+                case HealthVerdict.Critical: _banner.Set(BannerKind.Danger, "Risque de panne : sauvegardez vos données au plus vite", "Détails ci-dessous."); break;
+                default: _banner.Set(BannerKind.Neutral, "État inconnu", "Ce disque ne transmet pas ses informations de santé (fréquent pour les clés USB)."); break;
+            }
+        }
+
         private async Task CapacityAsync(CapacityTestMode mode)
         {
-            var d = Selected;
-            if (d == null || _busy) return;
-            if (d.IsSystem)
-            {
-                MessageBox.Show(this, "Le test d'authenticité remplit l'espace libre : il n'est pas proposé pour le disque de Windows.",
-                    "Test d'authenticité", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
+            var d = _drive;
+            if (d == null || d.IsSystem || Busy) return;
             if (mode == CapacityTestMode.Full)
             {
-                var free = new DriveInfo(d.Root).AvailableFreeSpace;
-                var answer = MessageBox.Show(this,
-                    $"Le test va écrire puis relire {free / 1e9:0.#} Go de données de test dans l'ESPACE LIBRE de {d.Root.TrimEnd('\\')}.\n\n" +
-                    "• Vos fichiers ne sont pas touchés ; les fichiers de test sont supprimés à la fin, même si vous l'arrêtez.\n" +
-                    "• Durée : de quelques minutes à plusieurs heures (clé USB 2.0 : ≈ 1 h pour 64 Go).\n" +
-                    "• Pour vérifier toute la capacité annoncée, testez la clé vide.\n\nLancer le test ?",
-                    "Test d'authenticité", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
-                if (answer != DialogResult.Yes) return;
+                long free = new DriveInfo(d.Root).AvailableFreeSpace;
+                if (MessageBox.Show(this,
+                        $"Le test va écrire puis relire {free / 1e9:0.#} Go de données de test dans l'ESPACE LIBRE de {d.Letter}.\n\n" +
+                        "• Vos fichiers ne sont pas touchés ; les fichiers de test sont supprimés à la fin, même si vous l'arrêtez.\n" +
+                        "• Durée : de quelques minutes à plusieurs heures (clé USB 2.0 : ≈ 1 h pour 64 Go).\n" +
+                        "• Pour vérifier toute la capacité annoncée, testez la clé vide.\n\nLancer le test ?",
+                        "Test d'authenticité", MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes)
+                    return;
             }
 
             _cts = new CancellationTokenSource();
             SetBusy(true);
-            _details.Items.Clear();
-            ShowVerdict(mode == CapacityTestMode.Full ? "Test d'authenticité en cours…" : "Test de vitesse en cours…", Theme.PrimaryDark);
+            _tiles.Controls.Clear();
+            _reasons.Text = "";
+            _progress.Visible = true;
+            _progress.Value = 0;
+            _banner.Set(BannerKind.Info, mode == CapacityTestMode.Full ? "Test d'authenticité en cours…" : "Test de vitesse en cours…",
+                "Vous pouvez l'arrêter à tout moment : les fichiers de test seront supprimés.");
             var progress = new Progress<CapacityProgress>(p =>
             {
                 _progress.Value = (int)Math.Min(1000, p.Total > 0 ? p.Done * 1000 / p.Total : 0);
                 double remaining = p.MBps > 0 ? (p.Total - p.Done) / 1e6 / p.MBps : 0;
-                _status.Text = $"{p.Phase} : {p.Done / 1e9:0.00} / {p.Total / 1e9:0.00} Go  —  {p.MBps:0.0} Mo/s" +
-                               (remaining > 0 ? $"  —  reste ≈ {TimeSpan.FromSeconds(remaining):hh\\:mm\\:ss}" : "") +
-                               (p.BadBytes > 0 ? $"  —  {p.BadBytes / 1e6:0} Mo CORROMPUS" : "");
+                _status.Text = $"{p.Phase} : {p.Done / 1e9:0.00} / {p.Total / 1e9:0.00} Go  ·  {p.MBps:0.0} Mo/s" +
+                               (remaining > 0 ? $"  ·  reste ≈ {TimeSpan.FromSeconds(remaining):hh\\:mm\\:ss}" : "") +
+                               (p.BadBytes > 0 ? $"  ·  {p.BadBytes / 1e6:0} Mo CORROMPUS" : "");
             });
             try
             {
                 var token = _cts.Token;
                 var r = await Task.Run(() => CapacityTest.Run(d.Root, mode, progress, token, LogFromWorker));
-                _details.Items.Add(new ListViewItem(new[] { "Données écrites", $"{r.BytesWritten / 1e9:0.00} Go" }));
-                _details.Items.Add(new ListViewItem(new[] { "Données vérifiées", $"{r.BytesVerified / 1e9:0.00} Go" }));
-                _details.Items.Add(new ListViewItem(new[] { "Données corrompues", $"{r.BytesBad / 1e6:0} Mo" }) { ForeColor = r.BytesBad > 0 ? Theme.Danger : Theme.Success });
-                _details.Items.Add(new ListViewItem(new[] { "Vitesse d'écriture réelle", $"{r.WriteMBps:0.0} Mo/s" }));
-                _details.Items.Add(new ListViewItem(new[] { "Vitesse de lecture réelle", $"{r.ReadMBps:0.0} Mo/s" }));
-                _details.Items.Add(new ListViewItem(new[] { "Conclusion", r.Summary() }));
-                if (r.Cancelled) ShowVerdict(Theme.Dot + "  Test arrêté (résultat partiel ci-dessous)", Theme.Warning);
-                else if (r.BytesBad > 0) ShowVerdict(Theme.Dot + "  FAUX OU DÉFECTUEUX : des données sont perdues", Theme.Danger);
-                else if (mode == CapacityTestMode.Full) ShowVerdict(Theme.Dot + "  AUTHENTIQUE : toute la mémoire testée est fiable", Theme.Success);
-                else ShowVerdict(Theme.Dot + $"  Aucune erreur — écriture {r.WriteMBps:0.0} Mo/s, lecture {r.ReadMBps:0.0} Mo/s", Theme.Success);
-                _progress.Value = 1000;
+                ShowCapacity(r, mode);
             }
             catch (Exception ex)
             {
-                ShowVerdict("Test impossible : " + ex.Message, Theme.Danger);
+                _banner.Set(BannerKind.Danger, "Test impossible.", ex.Message);
                 Log("Erreur : " + ex.Message);
             }
             finally
@@ -236,28 +200,49 @@ namespace MareyaUSBFix.UI
             }
         }
 
-        private void ShowVerdict(string text, Color color)
+        private void ShowCapacity(CapacityTestResult r, CapacityTestMode mode)
         {
-            _verdict.Text = text;
-            _verdict.ForeColor = color;
+            _tiles.Controls.Clear();
+            void Tile(string label, string value, string hint = "", Color? c = null)
+            {
+                var t = new StatTile(label);
+                t.Set(value, hint, c);
+                _tiles.Controls.Add(t);
+            }
+            Tile("Données vérifiées", $"{r.BytesVerified / 1e9:0.00} Go", $"sur {r.BytesWritten / 1e9:0.00} Go écrits");
+            Tile("Données corrompues", $"{r.BytesBad / 1e6:0} Mo", r.BytesBad > 0 ? "mémoire non fiable" : "aucune erreur", r.BytesBad > 0 ? Theme.Danger : Theme.Success);
+            Tile("Écriture réelle", $"{r.WriteMBps:0.0} Mo/s", SpeedHint(r.WriteMBps));
+            Tile("Lecture réelle", $"{r.ReadMBps:0.0} Mo/s", SpeedHint(r.ReadMBps));
+            _reasons.ForeColor = r.BytesBad > 0 ? Theme.Danger : Theme.Muted;
+            _reasons.Text = r.Summary();
+            _progress.Value = 1000;
+            _status.Text = "";
+
+            if (r.Cancelled) _banner.Set(BannerKind.Warning, "Test arrêté", "Résultat partiel ci-dessous. Les fichiers de test ont été supprimés.");
+            else if (r.BytesBad > 0) _banner.Set(BannerKind.Danger, "FAUX OU DÉFECTUEUX : des données sont perdues", "N'y stockez rien d'important. Détails ci-dessous.");
+            else if (mode == CapacityTestMode.Full) _banner.Set(BannerKind.Success, "AUTHENTIQUE : toute la mémoire testée est fiable", "Chaque octet écrit a été relu sans erreur.");
+            else _banner.Set(BannerKind.Success, "Aucune erreur sur l'échantillon testé", $"Écriture {r.WriteMBps:0.0} Mo/s · lecture {r.ReadMBps:0.0} Mo/s. Lancez le test d'authenticité pour prouver la capacité.");
         }
+
+        private static string SpeedHint(double mbps) =>
+            mbps < 15 ? "lent (USB 2.0 ou clé bas de gamme)" : mbps < 60 ? "correct" : mbps < 200 ? "rapide (USB 3)" : "très rapide";
 
         private void SetBusy(bool busy)
         {
-            _busy = busy;
+            Busy = busy;
             UseWaitCursor = busy && _cts == null;
-            if (busy) _progress.Value = 0;
             UpdateButtons();
+            BusyChanged?.Invoke();
         }
 
         private void UpdateButtons()
         {
-            bool has = Selected != null;
-            _health.Enabled = has && !_busy;
-            _speed.Enabled = has && !_busy && !(Selected?.IsSystem ?? true);
-            _full.Enabled = has && !_busy && !(Selected?.IsSystem ?? true);
-            _stop.Enabled = _busy && _cts != null;
-            _drives.Enabled = _refresh.Enabled = !_busy;
+            bool has = _drive != null;
+            bool writable = has && !_drive.IsSystem;
+            _health.Enabled = has && !Busy;
+            _speed.Enabled = writable && !Busy;
+            _full.Enabled = writable && !Busy;
+            _stop.Enabled = Busy && _cts != null;
         }
 
         private void LogFromWorker(string message)
@@ -267,5 +252,23 @@ namespace MareyaUSBFix.UI
         }
 
         private void Log(string message) => _log.AppendText($"{DateTime.Now:HH:mm:ss}  {message}{Environment.NewLine}");
+
+        // ---------- Démonstration (captures d'écran) ----------
+
+        internal void LoadDemo()
+        {
+            _drive = new DriveEntry { Root = @"C:\", Name = "Windows", IsSystem = true };
+            var report = new DiskHealthReport { Verdict = HealthVerdict.Good };
+            report.Add("État selon Windows", "Sain");
+            report.Add("Température", "40 °C");
+            report.Add("Heures d'utilisation", DiskHealth.FormatHours(182));
+            report.Add("Secteurs réalloués", "0");
+            report.Add("Modèle", "SSD256GB");
+            report.Add("Capacité annoncée", "256,1 Go (238,5 Gio)");
+            report.Add("Connexion", "SATA");
+            report.Add("Type", "SSD");
+            ShowHealth(report);
+            UpdateButtons();
+        }
     }
 }

@@ -17,6 +17,16 @@ namespace MareyaUSBFix
         [STAThread]
         private static int Main(string[] args)
         {
+            // MareyaUSBFix.exe /capture dossier : captures d'écran de l'interface (données de démonstration)
+            int cap = Array.FindIndex(args, a => a.Equals("/capture", StringComparison.OrdinalIgnoreCase));
+            if (cap >= 0 && cap + 1 < args.Length)
+            {
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                MainForm.CaptureScreens(args[cap + 1]);
+                return 0;
+            }
+
             if (args.Any(a => a.Equals("/scan", StringComparison.OrdinalIgnoreCase)
                               || a.Equals("/restore", StringComparison.OrdinalIgnoreCase)
                               || a.Equals("/health", StringComparison.OrdinalIgnoreCase)

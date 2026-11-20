@@ -4,380 +4,227 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using MareyaUSBFix.Core;
 
 namespace MareyaUSBFix.UI
 {
-    /// <summary>Fenêtre principale : choisir un lecteur, analyser, réparer.</summary>
+    /// <summary>
+    /// Fenêtre principale : menu latéral (Réparation, Diagnostic, Quarantaine, À propos),
+    /// choix du lecteur en tuiles commun à toutes les pages, et la page active.
+    /// </summary>
     public sealed class MainForm : Form
     {
-        private readonly ComboBox _drives = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Font = Theme.Body, Dock = DockStyle.Fill };
-        private readonly CheckBox _includeSystem = new CheckBox { Text = "Nettoyer aussi l'ordinateur (recommandé : c'est lui qui réinfecte les clés)", Checked = true, AutoSize = true, Font = Theme.Body };
-        private readonly Button _scan = MakeButton("Analyser", primary: true);
-        private readonly Button _repair = MakeButton("Réparer la sélection", primary: true);
-        private readonly Button _vaccinate = MakeButton("Vacciner la clé", primary: false);
-        private readonly Button _refresh = MakeButton("Actualiser", primary: false);
-        private readonly Button _quarantine = MakeButton("Quarantaine…", primary: false);
-        private readonly ListView _list = new ListView
-        {
-            View = View.Details, CheckBoxes = true, FullRowSelect = true, Dock = DockStyle.Fill,
-            Font = Theme.Body, HideSelection = false, BorderStyle = BorderStyle.FixedSingle, ShowItemToolTips = true
-        };
-        private readonly TextBox _log = new TextBox
-        {
-            Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill,
-            Font = Theme.Mono, BackColor = Color.White, BorderStyle = BorderStyle.FixedSingle
-        };
-        private readonly Label _status = new Label { AutoSize = false, Dock = DockStyle.Fill, Font = Theme.Bold, TextAlign = ContentAlignment.MiddleLeft };
-        private readonly CheckBox _autoProtect = new CheckBox { Text = "Protection automatique : nettoyer chaque clé dès qu'elle est branchée", AutoSize = true, Font = Theme.Body };
-        private readonly ProgressBar _progress = new ProgressBar { Style = ProgressBarStyle.Marquee, Visible = false, Dock = DockStyle.Fill, MarqueeAnimationSpeed = 30 };
-
-        private DiagnosticPanel _diagnostic;
-        private string _shownRoot;
-        private List<Finding> _findings = new List<Finding>();
-        private string _scannedRoot;
+        private readonly RepairPage _repair = new RepairPage();
+        private readonly DiagnosticPanel _diagnostic = new DiagnosticPanel();
+        private readonly QuarantinePage _quarantine = new QuarantinePage();
+        private readonly AboutPage _about = new AboutPage();
+        private readonly List<NavItem> _nav = new List<NavItem>();
+        private readonly Panel _host = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Background };
+        private readonly Label _pageTitle = new Label { AutoSize = true, Font = Theme.Title, ForeColor = Theme.Text, Location = new Point(0, 0), BackColor = Theme.Background };
+        private readonly Label _pageSubtitle = new Label { AutoSize = true, Font = Theme.Body, ForeColor = Theme.Muted, Location = new Point(2, 40), BackColor = Theme.Background };
+        private readonly Panel _driveStrip = new Panel { Dock = DockStyle.Top, Height = 108, BackColor = Theme.Background, Padding = new Padding(0, 4, 0, 16) };
+        private readonly FlowLayoutPanel _tiles = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true, BackColor = Theme.Background };
+        private readonly ModernButton _refresh = new ModernButton("Actualiser", ButtonKind.Ghost, Theme.Icons.Refresh);
+        private readonly ToggleSwitch _autoProtect = new ToggleSwitch("Protection automatique") { TextColor = Color.White, Font = Theme.Bold };
+        private readonly bool _demo;
+        private DriveEntry _selected;
         private DeviceWatcher _watcher;
-        private bool _busy;
+        private int _page = -1;
 
-        public MainForm()
+        private static readonly (string title, string subtitle, string icon)[] Pages =
         {
-            Text = "Mareya USB Fix — Anti virus raccourci";
+            ("Réparation", "Supprime le virus « raccourci » et récupère vos fichiers cachés.", Theme.Icons.Shield),
+            ("Diagnostic", "Santé du disque et test d'authenticité (fausses clés, vitesse réelle).", Theme.Icons.Health),
+            ("Quarantaine", "Ce que le logiciel a retiré : tout peut être remis à sa place.", Theme.Icons.Box),
+            ("À propos", "Mareya USB Fix, logiciel gratuit de Mareya Group.", Theme.Icons.Info),
+        };
+
+        public MainForm() : this(demo: false) { }
+
+        internal MainForm(bool demo)
+        {
+            _demo = demo;
+            Text = "Mareya USB Fix";
             Icon = Theme.AppIcon;
             Font = Theme.Body;
             AutoScaleMode = AutoScaleMode.Dpi;
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(820, 600);
-            Size = new Size(1000, 760);
-            BackColor = Color.White;
+            MinimumSize = new Size(1000, 700);
+            Size = new Size(1200, 800);
+            BackColor = Theme.Background;
 
             BuildLayout();
-            WireEvents();
-            LoadDrives();
-            UpdateButtons();
-            _autoProtect.Checked = SafeIsAutoEnabled();
-            _status.Text = "Branchez une clé USB, choisissez-la puis cliquez sur « Analyser ».";
-            _status.ForeColor = Theme.Muted;
+            _repair.BusyChanged += OnBusyChanged;
+            _diagnostic.BusyChanged += OnBusyChanged;
+
+            if (demo) LoadDemo();
+            else
+            {
+                LoadDrives();
+                _autoProtect.SetSilently(SafeIsAutoEnabled());
+                _autoProtect.CheckedChanged += (s, e) => ToggleAutoProtection();
+                Load += (s, e) =>
+                {
+                    _watcher = new DeviceWatcher(this);
+                    _watcher.DrivesChanged += () => BeginInvoke(new Action(LoadDrives));
+                    _watcher.DriveArrived += root =>
+                    {
+                        LoadDrives();
+                        SelectDrive(root);
+                        if (_page == 0 && !_repair.Busy) _ = _repair.ScanAsync();
+                    };
+                };
+                FormClosed += (s, e) => _watcher?.Dispose();
+            }
+            ShowPage(0);
         }
 
-        private static Button MakeButton(string text, bool primary)
-        {
-            var b = new Button
-            {
-                Text = text, AutoSize = true, Padding = new Padding(14, 6, 14, 6), Margin = new Padding(0, 0, 8, 0),
-                FlatStyle = FlatStyle.Flat, Font = Theme.Bold, Cursor = Cursors.Hand,
-                BackColor = primary ? Theme.Primary : Color.White, ForeColor = primary ? Color.White : Theme.PrimaryDark
-            };
-            b.FlatAppearance.BorderColor = primary ? Theme.Primary : Theme.Primary;
-            b.FlatAppearance.MouseOverBackColor = primary ? Theme.PrimaryDark : Theme.Surface;
-            Theme.GreyWhenDisabled(b, primary);
-            return b;
-        }
+        // ---------- Mise en page ----------
 
         private void BuildLayout()
         {
-            // En-tête
-            var header = new Panel { Dock = DockStyle.Top, Height = 78, BackColor = Theme.Primary, Padding = new Padding(20, 12, 20, 12) };
-            var title = new Label { Text = "Mareya USB Fix", Font = Theme.Title, ForeColor = Color.White, AutoSize = true, Location = new Point(20, 10) };
-            var subtitle = new Label
+            // Menu latéral
+            var sidebar = new Panel { Dock = DockStyle.Left, Width = 236, BackColor = Theme.Navy };
+            var brand = new Panel { Dock = DockStyle.Top, Height = 100, BackColor = Theme.Navy };
+            var logo = new PictureBox { Size = new Size(40, 40), Location = new Point(22, 30), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Theme.Navy };
+            try { logo.Image = new Icon(Theme.AppIcon, 64, 64).ToBitmap(); } catch { }
+            brand.Controls.Add(logo);
+            brand.Controls.Add(new Label { Text = "Mareya", Font = Theme.Heading, ForeColor = Color.White, AutoSize = true, Location = new Point(72, 28), BackColor = Theme.Navy });
+            brand.Controls.Add(new Label { Text = "USB Fix  ·  v" + Theme.Version, Font = Theme.Small, ForeColor = Color.FromArgb(0x9F, 0xB3, 0xD6), AutoSize = true, Location = new Point(73, 52), BackColor = Theme.Navy });
+
+            var navFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Navy, Padding = new Padding(0, 6, 0, 0) };
+            for (int i = 0; i < Pages.Length; i++)
             {
-                Text = "Supprime le virus « raccourci », récupère vos fichiers cachés et vérifie la santé et l'authenticité de vos disques.",
-                Font = Theme.Subtitle, ForeColor = Color.FromArgb(0xDD, 0xE8, 0xFF), AutoSize = true, Location = new Point(22, 46)
-            };
-            header.Controls.Add(title);
-            header.Controls.Add(subtitle);
+                int index = i;
+                var item = new NavItem(Pages[i].title, Pages[i].icon) { Dock = DockStyle.None, Width = 236, Margin = new Padding(0, 0, 0, 4) };
+                item.Click += (s, e) => ShowPage(index);
+                _nav.Add(item);
+                navFlow.Controls.Add(item);
+            }
 
-            // Corps
-            var body = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 14, 20, 10), ColumnCount = 1, RowCount = 7 };
-            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // lecteur
-            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // option ordinateur
-            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // boutons
-            body.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));  // statut
-            body.RowStyles.Add(new RowStyle(SizeType.Percent, 62));   // liste
-            body.RowStyles.Add(new RowStyle(SizeType.Percent, 38));   // journal
-            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // protection auto
+            var protect = new Panel { Dock = DockStyle.Bottom, Height = 104, BackColor = Theme.Navy, Padding = new Padding(20, 0, 16, 20) };
+            _autoProtect.Location = new Point(20, 18);
+            _autoProtect.Width = 200;
+            protect.Controls.Add(_autoProtect);
+            protect.Controls.Add(new Label
+            {
+                Text = "Nettoie automatiquement chaque clé dès qu'elle est branchée.",
+                Font = Theme.Small, ForeColor = Color.FromArgb(0x9F, 0xB3, 0xD6), BackColor = Theme.Navy,
+                Location = new Point(20, 52), Size = new Size(200, 40)
+            });
 
-            var driveRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, AutoSize = true, Margin = new Padding(0, 0, 0, 6) };
-            driveRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            driveRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            driveRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            driveRow.Controls.Add(new Label { Text = "Lecteur à réparer :", AutoSize = true, Font = Theme.Bold, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 0) }, 0, 0);
-            driveRow.Controls.Add(_drives, 1, 0);
-            _refresh.Margin = new Padding(8, 0, 0, 0);
-            driveRow.Controls.Add(_refresh, 2, 0);
+            sidebar.Controls.Add(navFlow);
+            sidebar.Controls.Add(protect);
+            sidebar.Controls.Add(brand);
 
-            var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 4), WrapContents = true };
-            buttons.Controls.AddRange(new Control[] { _scan, _repair, _vaccinate, _quarantine });
+            // Contenu
+            var content = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Background, Padding = new Padding(30, 24, 30, 24) };
+            var header = new Panel { Dock = DockStyle.Top, Height = 76, BackColor = Theme.Background };
+            header.Controls.Add(_pageTitle);
+            header.Controls.Add(_pageSubtitle);
 
-            var statusRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0) };
-            statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
-            statusRow.Controls.Add(_status, 0, 0);
-            statusRow.Controls.Add(_progress, 1, 0);
-            _progress.Margin = new Padding(0, 10, 0, 10);
-
-            _list.Columns.Add("Type", 130);
-            _list.Columns.Add("Problème", 420);
-            _list.Columns.Add("Emplacement", 360);
-
-            var logBox = new GroupBox { Text = "Journal", Dock = DockStyle.Fill, Font = Theme.Bold, Padding = new Padding(6) };
-            logBox.Controls.Add(_log);
-
-            body.Controls.Add(driveRow, 0, 0);
-            body.Controls.Add(_includeSystem, 0, 1);
-            body.Controls.Add(buttons, 0, 2);
-            body.Controls.Add(statusRow, 0, 3);
-            body.Controls.Add(_list, 0, 4);
-            body.Controls.Add(logBox, 0, 5);
-            _autoProtect.Margin = new Padding(0, 8, 0, 0);
-            body.Controls.Add(_autoProtect, 0, 6);
-
-            // Deux onglets : réparation (virus) et diagnostic du disque (santé, authenticité)
-            var tabs = new TabControl { Dock = DockStyle.Fill, Font = Theme.Bold, Padding = new Point(16, 6) };
-            var repairTab = new TabPage("Réparation (virus raccourci)") { BackColor = Color.White };
-            repairTab.Controls.Add(body);
-            var diagTab = new TabPage("Diagnostic du disque") { BackColor = Color.White };
-            _diagnostic = new DiagnosticPanel();
-            diagTab.Controls.Add(_diagnostic);
-            tabs.TabPages.Add(repairTab);
-            tabs.TabPages.Add(diagTab);
-            body.Font = Theme.Body;
-
-            Controls.Add(tabs);
-            Controls.Add(header);
-        }
-
-        private void WireEvents()
-        {
+            _refresh.Dock = DockStyle.Right;
             _refresh.Click += (s, e) => LoadDrives();
-            _drives.SelectedIndexChanged += (s, e) =>
-            {
-                // nouveau disque choisi : on repart d'un écran vierge (journal compris)
-                string root = SelectedRoot;
-                if (!string.Equals(root, _shownRoot, StringComparison.OrdinalIgnoreCase))
-                {
-                    _shownRoot = root;
-                    ClearFindings();
-                    _log.Clear();
-                    _status.Text = root == null ? "" : $"Disque {root.TrimEnd('\\')} sélectionné. Cliquez sur « Analyser ».";
-                    _status.ForeColor = Theme.Muted;
-                }
-                UpdateButtons();
-            };
-            _scan.Click += async (s, e) => await ScanAsync();
-            _repair.Click += async (s, e) => await RepairAsync();
-            _vaccinate.Click += (s, e) => VaccinateSelected();
-            _quarantine.Click += (s, e) =>
-            {
-                if (SelectedRoot == null) return;
-                using (var f = new QuarantineForm(SelectedRoot)) f.ShowDialog(this);
-            };
-            _list.ItemChecked += (s, e) =>
-            {
-                if (e.Item.Tag is Finding f) f.Selected = e.Item.Checked;
-                UpdateButtons();
-            };
-            _autoProtect.Click += (s, e) => ToggleAutoProtection();
+            var refreshHost = new Panel { Dock = DockStyle.Right, Width = _refresh.Width + 8, BackColor = Theme.Background, Padding = new Padding(8, 24, 0, 24) };
+            refreshHost.Controls.Add(_refresh);
+            _driveStrip.Controls.Add(_tiles);
+            _driveStrip.Controls.Add(refreshHost);
 
-            Load += (s, e) =>
-            {
-                _watcher = new DeviceWatcher(this);
-                _watcher.DrivesChanged += () => BeginInvoke(new Action(() => { LoadDrives(); _diagnostic?.LoadDrives(); }));
-                _watcher.DriveArrived += root =>
-                {
-                    SelectDrive(root);
-                    if (!_busy) _ = ScanAsync();
-                };
-            };
-            FormClosed += (s, e) => _watcher?.Dispose();
+            content.Controls.Add(_host);
+            content.Controls.Add(_driveStrip);
+            content.Controls.Add(header);
+
+            Controls.Add(content);
+            Controls.Add(sidebar);
         }
 
-        // ---------- Lecteurs ----------
-
-        private sealed class DriveItem
+        public void ShowPage(int index)
         {
-            public string Root;
-            public string Label;
-            public override string ToString() => Label;
+            if (index == _page) return;
+            _page = index;
+            for (int i = 0; i < _nav.Count; i++) _nav[i].Selected = i == index;
+            _pageTitle.Text = Pages[index].title;
+            _pageSubtitle.Text = Pages[index].subtitle;
+            _driveStrip.Visible = index != 3;
+
+            Control page = index == 0 ? _repair : index == 1 ? (Control)_diagnostic : index == 2 ? _quarantine : _about;
+            _host.SuspendLayout();
+            _host.Controls.Clear();
+            _host.Controls.Add(page);
+            _host.ResumeLayout();
+            if (index == 2 && !_demo) _quarantine.Reload();
         }
+
+        // ---------- Lecteurs (tuiles) ----------
 
         private void LoadDrives()
         {
-            string previous = (_drives.SelectedItem as DriveItem)?.Root;
-            _drives.Items.Clear();
+            var drives = new List<DriveEntry>();
             foreach (var d in DriveInfo.GetDrives())
             {
                 try
                 {
-                    if (!d.IsReady) continue;
-                    if (d.DriveType != DriveType.Removable && d.DriveType != DriveType.Fixed) continue;
-                    if (DriveScanner.IsSystemDrive(d.RootDirectory.FullName)) continue;
-                    string kind = d.DriveType == DriveType.Removable ? "Clé USB / carte mémoire" : "Disque";
-                    string name = string.IsNullOrWhiteSpace(d.VolumeLabel) ? "Sans nom" : d.VolumeLabel;
-                    _drives.Items.Add(new DriveItem
+                    if (!d.IsReady || (d.DriveType != DriveType.Removable && d.DriveType != DriveType.Fixed)) continue;
+                    bool sys = DriveScanner.IsSystemDrive(d.RootDirectory.FullName);
+                    drives.Add(new DriveEntry
                     {
                         Root = d.RootDirectory.FullName,
-                        Label = $"{d.RootDirectory.FullName.TrimEnd('\\')}  —  {name}  ({kind}, {FormatSize(d.TotalSize)})"
+                        Name = string.IsNullOrWhiteSpace(d.VolumeLabel) ? (sys ? "Windows" : "Sans nom") : d.VolumeLabel,
+                        Kind = sys ? "Disque de Windows" : d.DriveType == DriveType.Removable ? "Clé USB / carte mémoire" : "Disque dur",
+                        Total = d.TotalSize, Free = d.AvailableFreeSpace,
+                        IsRemovable = d.DriveType == DriveType.Removable, IsSystem = sys
                     });
                 }
-                catch { /* lecteur non accessible */ }
+                catch { /* lecteur indisponible */ }
             }
-
-            if (_drives.Items.Count == 0)
-            {
-                _drives.Items.Add(new DriveItem { Root = null, Label = "Aucune clé ou disque externe détecté : branchez-en un" });
-                _drives.SelectedIndex = 0;
-            }
-            else
-            {
-                SelectDrive(previous);
-                if (_drives.SelectedIndex < 0)
-                {
-                    // de préférence une clé USB
-                    var usb = _drives.Items.Cast<DriveItem>().FirstOrDefault(i => i.Label.Contains("Clé USB"));
-                    _drives.SelectedItem = usb ?? _drives.Items[0];
-                }
-            }
-            UpdateButtons();
+            // clés USB d'abord, puis disques, le disque de Windows en dernier
+            ShowTiles(drives.OrderBy(d => d.IsSystem).ThenBy(d => !d.IsRemovable).ThenBy(d => d.Root).ToList());
         }
 
-        private void SelectDrive(string root)
+        private void ShowTiles(List<DriveEntry> drives)
         {
-            if (root == null) return;
-            if (!_drives.Items.Cast<DriveItem>().Any(i => string.Equals(i.Root, root, StringComparison.OrdinalIgnoreCase)))
-                LoadDrives();
-            var item = _drives.Items.Cast<DriveItem>().FirstOrDefault(i => string.Equals(i.Root, root, StringComparison.OrdinalIgnoreCase));
-            if (item != null) _drives.SelectedItem = item;
+            string previous = _selected?.Root;
+            _tiles.SuspendLayout();
+            _tiles.Controls.Clear();
+            foreach (var d in drives)
+            {
+                var tile = new DriveTile(d);
+                tile.Click += (s, e) => { if (!AnyBusy) SelectDrive(d.Root); };
+                _tiles.Controls.Add(tile);
+            }
+            if (drives.Count == 0)
+                _tiles.Controls.Add(new Label { Text = "Aucun disque détecté : branchez une clé USB.", AutoSize = true, Font = Theme.Body, ForeColor = Theme.Muted, Margin = new Padding(4, 30, 0, 0) });
+            _tiles.ResumeLayout();
+
+            var keep = drives.FirstOrDefault(d => string.Equals(d.Root, previous, StringComparison.OrdinalIgnoreCase))
+                       ?? drives.FirstOrDefault(d => d.IsRemovable) ?? drives.FirstOrDefault(d => !d.IsSystem) ?? drives.FirstOrDefault();
+            SelectDrive(keep?.Root, force: true);
         }
 
-        private static string FormatSize(long bytes)
+        private void SelectDrive(string root, bool force = false)
         {
-            double gb = bytes / 1024d / 1024d / 1024d;
-            return gb >= 1 ? $"{gb:0.#} Go" : $"{bytes / 1024d / 1024d:0} Mo";
+            var tiles = _tiles.Controls.OfType<DriveTile>().ToList();
+            var tile = tiles.FirstOrDefault(t => string.Equals(t.Drive.Root, root, StringComparison.OrdinalIgnoreCase));
+            foreach (var t in tiles) t.Selected = t == tile;
+            var entry = tile?.Drive;
+            if (!force && entry != null && _selected != null && string.Equals(entry.Root, _selected.Root, StringComparison.OrdinalIgnoreCase)) return;
+            _selected = entry;
+            _repair.SetDrive(entry);
+            _diagnostic.SetDrive(entry);
+            if (_page == 2 || force) _quarantine.SetDrive(entry);
         }
 
-        private string SelectedRoot => (_drives.SelectedItem as DriveItem)?.Root;
+        private bool AnyBusy => _repair.Busy || _diagnostic.Busy;
 
-        // ---------- Analyse et réparation ----------
-
-        private async Task ScanAsync()
+        private void OnBusyChanged()
         {
-            string root = SelectedRoot;
-            if (root == null || _busy) return;
-            SetBusy(true, $"Analyse de {root} en cours…");
-            ClearFindings();
-            bool withSystem = _includeSystem.Checked;
-            try
-            {
-                var found = await Task.Run(() =>
-                {
-                    var all = new List<Finding>();
-                    if (withSystem) all.AddRange(new SystemCleaner().Scan(LogFromWorker));
-                    all.AddRange(new DriveScanner(root).Scan(LogFromWorker));
-                    return all;
-                });
-                _findings = found;
-                _scannedRoot = root;
-                ShowFindings();
-            }
-            catch (Exception ex)
-            {
-                Log("Erreur : " + ex.Message);
-                SetStatus("L'analyse a échoué : " + ex.Message, Theme.Danger);
-            }
-            finally
-            {
-                SetBusy(false, null);
-            }
+            bool busy = AnyBusy;
+            _refresh.Enabled = !busy;
+            foreach (var t in _tiles.Controls.OfType<DriveTile>()) t.Enabled = !busy || t.Selected;
         }
 
-        private async Task RepairAsync()
-        {
-            var selected = _findings.Where(f => f.Selected).ToList();
-            if (selected.Count == 0 || _busy) return;
-
-            int suspects = selected.Count(f => f.Severity == Severity.Suspect);
-            if (suspects > 0)
-            {
-                var answer = MessageBox.Show(this,
-                    $"Vous avez coché {suspects} élément(s) « à vérifier ». Ils seront retirés (placés en quarantaine sur le lecteur, restaurables ; les dossiers found.000 sont, eux, supprimés).\n\nContinuer ?",
-                    "Confirmer la réparation", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                if (answer != DialogResult.Yes) return;
-            }
-
-            string root = _scannedRoot;
-            SetBusy(true, "Réparation en cours…");
-            try
-            {
-                int logStart = _log.TextLength;
-                int ok = await Task.Run(() => DriveScanner.Repair(_findings, LogFromWorker));
-                Log($"{ok} correction(s) sur {selected.Count} appliquée(s).");
-                Application.DoEvents(); // laisser s'afficher les dernières lignes du journal
-                try
-                {
-                    var lines = _log.Text.Substring(logStart).Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
-                    Log("Rapport enregistré : " + QuarantineStore.SaveReport(root, lines));
-                }
-                catch (Exception ex) { Log("Rapport non enregistré : " + ex.Message); }
-
-                // nouvelle analyse pour vérifier
-                bool withSystem = _includeSystem.Checked;
-                var after = await Task.Run(() =>
-                {
-                    var all = new List<Finding>();
-                    if (withSystem) all.AddRange(new SystemCleaner().Scan(LogFromWorker));
-                    all.AddRange(new DriveScanner(root).Scan(LogFromWorker));
-                    return all;
-                });
-                _findings = after;
-                ShowFindings();
-
-                int left = after.Count(f => f.Severity == Severity.Malicious);
-                if (left == 0)
-                {
-                    SetStatus("Réparation terminée : vos fichiers sont de nouveau visibles. ✔", Theme.Success);
-                    if (!Vaccine.IsVaccinated(root) && MessageBox.Show(this,
-                            "Réparation terminée ! Vos fichiers sont de nouveau visibles.\n\n" +
-                            "Voulez-vous vacciner cette clé pour mieux la protéger à l'avenir ?",
-                            "Mareya USB Fix", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
-                    {
-                        VaccinateSelected();
-                    }
-                    TryOpen(root);
-                }
-                else
-                {
-                    SetStatus($"{left} élément(s) n'ont pas pu être supprimés. Fermez les fichiers ouverts et recommencez.", Theme.Danger);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log("Erreur : " + ex.Message);
-                SetStatus("La réparation a échoué : " + ex.Message, Theme.Danger);
-            }
-            finally
-            {
-                SetBusy(false, null);
-            }
-        }
-
-        private void VaccinateSelected()
-        {
-            string root = SelectedRoot;
-            if (root == null) return;
-            try
-            {
-                Vaccine.Apply(root);
-                Log($"{root} vacciné : un dossier protégé autorun.inf empêche le virus d'y créer le sien.");
-                SetStatus($"Clé {root.TrimEnd('\\')} vaccinée.", Theme.Success);
-            }
-            catch (Exception ex)
-            {
-                Log("Vaccination impossible : " + ex.Message);
-                SetStatus("Vaccination impossible : " + ex.Message, Theme.Danger);
-            }
-        }
+        // ---------- Protection automatique ----------
 
         private void ToggleAutoProtection()
         {
@@ -386,18 +233,18 @@ namespace MareyaUSBFix.UI
                 if (_autoProtect.Checked)
                 {
                     AutoProtection.Enable();
-                    Log("Protection automatique activée : Mareya USB Fix démarrera avec Windows et nettoiera chaque clé branchée.");
                     Process.Start(new ProcessStartInfo(AutoProtection.InstalledExe, AutoProtection.TrayArgument) { UseShellExecute = true });
+                    MessageBox.Show(this, "Protection automatique activée : Mareya USB Fix démarrera avec Windows et nettoiera chaque clé branchée.",
+                        "Protection automatique", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 else
                 {
                     AutoProtection.Disable();
-                    Log("Protection automatique désactivée (elle s'arrêtera au prochain redémarrage).");
                 }
             }
             catch (Exception ex)
             {
-                _autoProtect.Checked = SafeIsAutoEnabled();
+                _autoProtect.SetSilently(SafeIsAutoEnabled());
                 MessageBox.Show(this, ex.Message, "Protection automatique", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -407,84 +254,45 @@ namespace MareyaUSBFix.UI
             try { return AutoProtection.IsEnabled; } catch { return false; }
         }
 
-        // ---------- Affichage ----------
+        // ---------- Démonstration (captures d'écran) ----------
 
-        private void ShowFindings()
+        private void LoadDemo()
         {
-            _list.BeginUpdate();
-            _list.Items.Clear();
-            foreach (var f in _findings.OrderBy(f => f.Severity).ThenBy(f => f.Category))
+            ShowTiles(new List<DriveEntry>
             {
-                var item = new ListViewItem(new[] { f.Category, f.Description, f.Location })
+                new DriveEntry { Root = @"E:\", Name = "KINGSTON", Kind = "Clé USB / carte mémoire", Total = 15_500_000_000, Free = 9_100_000_000, IsRemovable = true },
+                new DriveEntry { Root = @"F:\", Name = "MES FICHIERS", Kind = "Disque dur", Total = 254_000_000_000, Free = 61_000_000_000 },
+                new DriveEntry { Root = @"C:\", Name = "Windows", Kind = "Disque de Windows", Total = 255_000_000_000, Free = 169_600_000_000, IsSystem = true },
+            });
+            _autoProtect.SetSilently(true);
+            _repair.LoadDemo();
+            _diagnostic.LoadDemo();
+            _quarantine.LoadDemo();
+        }
+
+        /// <summary>Capture d'écran de la fenêtre (mode démonstration, pour la documentation et les tests visuels).</summary>
+        internal static void CaptureScreens(string folder)
+        {
+            Directory.CreateDirectory(folder);
+            using (var form = new MainForm(demo: true) { StartPosition = FormStartPosition.Manual, Location = new Point(0, 0), ShowInTaskbar = false })
+            {
+                form.Show();
+                string[] names = { "1-reparation", "2-diagnostic", "3-quarantaine", "4-a-propos" };
+                for (int i = 0; i < names.Length; i++)
                 {
-                    Tag = f,
-                    Checked = f.Selected,
-                    ForeColor = f.Severity == Severity.Malicious ? Theme.Danger : Theme.Warning,
-                    BackColor = f.Severity == Severity.Malicious ? Theme.DangerBack : Theme.WarningBack,
-                    ToolTipText = f.Severity == Severity.Malicious ? "Élément du virus" : "À vérifier : cochez-le si vous ne le reconnaissez pas"
-                };
-                _list.Items.Add(item);
+                    form.ShowPage(i);
+                    if (i == 1) form.SelectDrive(@"C:\", force: false);
+                    for (int k = 0; k < 10; k++) { Application.DoEvents(); System.Threading.Thread.Sleep(30); }
+                    if (i == 1) form._diagnostic.LoadDemo();
+                    for (int k = 0; k < 10; k++) { Application.DoEvents(); System.Threading.Thread.Sleep(30); }
+                    using (var bmp = new Bitmap(form.Width, form.Height))
+                    {
+                        form.DrawToBitmap(bmp, new Rectangle(0, 0, form.Width, form.Height));
+                        bmp.Save(Path.Combine(folder, names[i] + ".png"), System.Drawing.Imaging.ImageFormat.Png);
+                    }
+                }
+                form.Close();
             }
-            _list.EndUpdate();
-
-            int bad = _findings.Count(f => f.Severity == Severity.Malicious);
-            int doubt = _findings.Count(f => f.Severity == Severity.Suspect);
-            if (_findings.Count == 0)
-                SetStatus("Aucun virus trouvé. Votre clé est propre. ✔", Theme.Success);
-            else if (bad > 0)
-                SetStatus($"Virus détecté : {bad} élément(s) à corriger" + (doubt > 0 ? $", {doubt} à vérifier" : "") + ". Cliquez sur « Réparer la sélection ».", Theme.Danger);
-            else
-                SetStatus($"{doubt} élément(s) à vérifier (non cochés). Cochez ceux que vous ne reconnaissez pas.", Theme.Warning);
-            UpdateButtons();
-        }
-
-        private void ClearFindings()
-        {
-            _findings = new List<Finding>();
-            _list.Items.Clear();
-        }
-
-        private void SetBusy(bool busy, string message)
-        {
-            _busy = busy;
-            _progress.Visible = busy;
-            UseWaitCursor = busy;
-            if (message != null) SetStatus(message, Theme.PrimaryDark);
-            UpdateButtons();
-        }
-
-        private void UpdateButtons()
-        {
-            bool hasDrive = SelectedRoot != null;
-            _scan.Enabled = hasDrive && !_busy;
-            _vaccinate.Enabled = hasDrive && !_busy;
-            _quarantine.Enabled = hasDrive && !_busy;
-            _refresh.Enabled = !_busy;
-            _drives.Enabled = !_busy;
-            _repair.Enabled = !_busy && _findings.Any(f => f.Selected);
-        }
-
-        private void SetStatus(string text, Color color)
-        {
-            _status.Text = text;
-            _status.ForeColor = color;
-        }
-
-        private void LogFromWorker(string message)
-        {
-            if (InvokeRequired) BeginInvoke(new Action(() => Log(message)));
-            else Log(message);
-        }
-
-        private void Log(string message)
-        {
-            _log.AppendText($"{DateTime.Now:HH:mm:ss}  {message}{Environment.NewLine}");
-        }
-
-        private static void TryOpen(string root)
-        {
-            try { Process.Start(new ProcessStartInfo("explorer.exe", $"\"{root}\"") { UseShellExecute = true }); }
-            catch { /* simple confort */ }
         }
     }
 }

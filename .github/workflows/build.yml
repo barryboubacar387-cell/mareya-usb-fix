@@ -22,11 +22,29 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Compiler
-        run: dotnet build src/MareyaUSBFix/MareyaUSBFix.csproj -c Release
+        shell: pwsh
+        run: |
+          $v = "${{ inputs.version }}"
+          if (-not $v) { $v = "0.0.0" }
+          dotnet build src/MareyaUSBFix/MareyaUSBFix.csproj -c Release -p:Version=$v
 
       - name: Test sur une clé infectée simulée
         shell: pwsh
         run: ./tests/simulate-infection.ps1 -Exe src/MareyaUSBFix/bin/Release/net48/MareyaUSBFix.exe
+
+      - name: Captures d'écran de l'interface
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $p = Start-Process src/MareyaUSBFix/bin/Release/net48/MareyaUSBFix.exe -ArgumentList "/capture", "$env:RUNNER_TEMP\captures" -Wait -PassThru
+          Get-ChildItem "$env:RUNNER_TEMP\captures" | ForEach-Object { Write-Host "$($_.Name) $($_.Length) octets" }
+          Set-Location "$env:RUNNER_TEMP\captures"
+          git init -q
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Captures d'écran ($env:GITHUB_SHA)"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:captures
 
       - name: Préparer le fichier à télécharger
         shell: pwsh
